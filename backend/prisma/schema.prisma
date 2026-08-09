@@ -1,0 +1,472 @@
+// Enzi Packaging — commerce platform schema
+// Postgres + Prisma. New DB, so standard `prisma db push` flow (matches Kodee).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  STAFF
+  SUPPORT
+}
+
+enum PricingTier {
+  RETAIL
+  WHOLESALE
+}
+
+enum OrderStatus {
+  DRAFT // in cart / not yet placed
+  PENDING_PAYMENT // placed, awaiting STK confirmation (non-POD methods)
+  CONFIRMED // paid OR placed on a POD method — ready to work
+  PROCESSING
+  PACKED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  MPESA // Daraja STK push
+  KOPOKOPO
+  CASH
+  ON_DELIVERY // placeholder record for pay-on-delivery orders
+}
+
+enum DeliveryType {
+  STORE_PICKUP
+  DELIVERY
+  PARCEL // via Matatu — independent cost, POD never allowed
+  PICKUP_MTAANI // POD never allowed
+}
+
+enum PromoType {
+  PERCENT // e.g. 10% off
+  FIXED_PRICE // override unit price to a flat value
+  FIXED_DISCOUNT // subtract a flat amount per unit
+}
+
+enum StockReason {
+  RESTOCK
+  SALE
+  AUDIT_ADJUST
+  DAMAGE
+  RETURN
+  MANUAL
+}
+
+enum SmsStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+  FAILED
+}
+
+// ----------------------------------------------------------------------------
+// Staff / auth
+// ----------------------------------------------------------------------------
+
+model StaffUser {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STAFF)
+  active       Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  stockAudits  StockAudit[]
+  smsCampaigns SmsCampaign[]
+}
+
+// ----------------------------------------------------------------------------
+// Catalog
+// ----------------------------------------------------------------------------
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  position  Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  products  Product[]
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  sku         String? @unique
+  description String? @db.Text
+
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+
+  // Dual pricing. Prices in KES, stored as integer cents to avoid float drift.
+  retailPrice    Int
+  wholesalePrice Int?
+
+  // Minimum order quantities per tier. Retail min is auto-enforced at checkout.
+  retailMinQty    Int @default(1)
+  wholesaleMinQty Int @default(1)
+
+  stockQty  Int     @default(0)
+  featured  Boolean @default(false)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images     ProductImage[]
+  promotions Promotion[]
+  orderItems OrderItem[]
+  stockMoves StockMovement[]
+  auditItems StockAuditItem[]
+
+  @@index([categoryId])
+  @@index([featured])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String?
+  position  Int     @default(0)
+
+  @@index([productId])
+}
+
+// ----------------------------------------------------------------------------
+// Promotions — per product or category-wide, time-boxed
+// ----------------------------------------------------------------------------
+
+model Promotion {
+  id         String    @id @default(cuid())
+  name       String
+  type       PromoType
+  value      Int // percent (0-100) OR cents, depending on type
+  tier       PricingTier? // null = applies to both tiers
+  productId  String?
+  product    Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId String? // category-wide promo (resolved at pricing time)
+  startsAt   DateTime?
+  endsAt     DateTime?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@index([productId])
+  @@index([categoryId])
+  @@index([active])
+}
+
+// ----------------------------------------------------------------------------
+// Customers (CRM — marketing + reorder)
+// ----------------------------------------------------------------------------
+
+model Customer {
+  id                String   @id @default(cuid())
+  phone             String   @unique // primary identity (2547XXXXXXXX)
+  name              String?
+  email             String?
+  passwordHash      String? // set once they create a login
+  marketingConsent  Boolean  @default(true)
+  tags              String[] // segmentation for SMS campaigns
+  notes             String?  @db.Text
+
+  // denormalised CRM rollups (kept fresh on order completion)
+  orderCount        Int      @default(0)
+  totalSpent        Int      @default(0) // cents
+  lastOrderAt       DateTime?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  orders            Order[]
+  addresses         Address[]
+  smsMessages       SmsMessage[]
+
+  @@index([lastOrderAt])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String? // "Home", "Shop"
+  line1      String
+  line2      String?
+  town       String?
+  county     String?
+  isDefault  Boolean  @default(false)
+
+  @@index([customerId])
+}
+
+// ----------------------------------------------------------------------------
+// Delivery methods — admin-configurable, POD toggle per method
+// ----------------------------------------------------------------------------
+
+model DeliveryMethod {
+  id          String       @id @default(cuid())
+  name        String
+  type        DeliveryType
+  description String?
+  baseCost    Int          @default(0) // cents; admin sets independently
+  podAllowed  Boolean      @default(false) // the enable/disable toggle
+  active      Boolean      @default(true)
+  position    Int          @default(0)
+  config      Json? // method-specific (e.g. mtaani agent list, matatu sacco)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  orders      Order[]
+}
+
+// ----------------------------------------------------------------------------
+// Orders
+// ----------------------------------------------------------------------------
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // human-facing, e.g. ENZ-2026-000123
+
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+
+  tier        PricingTier @default(RETAIL)
+  status      OrderStatus @default(DRAFT)
+
+  // money, all cents
+  subtotal    Int         @default(0)
+  deliveryFee Int         @default(0)
+  discount    Int         @default(0)
+  total       Int         @default(0)
+
+  // delivery snapshot
+  deliveryMethodId String?
+  deliveryMethod   DeliveryMethod? @relation(fields: [deliveryMethodId], references: [id])
+  isPayOnDelivery  Boolean         @default(false)
+  deliveryDetails  Json? // snapshot address / agent / matatu details
+
+  isPaid      Boolean     @default(false)
+  paidAt      DateTime?
+
+  placedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  items       OrderItem[]
+  payments    Payment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id         String      @id @default(cuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product     @relation(fields: [productId], references: [id])
+
+  // snapshots (price/name frozen at time of order)
+  name       String
+  unitPrice  Int // effective price after tier + promo, cents
+  quantity   Int
+  lineTotal  Int
+  tier       PricingTier @default(RETAIL)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ----------------------------------------------------------------------------
+// Payments
+// ----------------------------------------------------------------------------
+
+model Payment {
+  id                String          @id @default(cuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          PaymentProvider @default(MPESA)
+  status            PaymentStatus   @default(PENDING)
+  amount            Int // cents
+  phone             String?
+
+  // Daraja STK fields
+  checkoutRequestId String?         @unique
+  merchantRequestId String?
+  mpesaReceipt      String?
+  resultCode        Int?
+  resultDesc        String?
+  rawCallback       Json?
+
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------------------------
+// Stock — movement ledger + audit sessions
+// ----------------------------------------------------------------------------
+
+model StockMovement {
+  id        String      @id @default(cuid())
+  productId String
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  delta     Int // +restock / -sale
+  reason    StockReason
+  refId     String? // order id, audit id, etc.
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model StockAudit {
+  id        String           @id @default(cuid())
+  reference String           @unique
+  staffId   String?
+  staff     StaffUser?       @relation(fields: [staffId], references: [id])
+  note      String?
+  closedAt  DateTime?
+  createdAt DateTime         @default(now())
+
+  items     StockAuditItem[]
+}
+
+model StockAuditItem {
+  id           String     @id @default(cuid())
+  auditId      String
+  audit        StockAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id])
+  systemQty    Int // qty per system at count time
+  countedQty   Int // physical count
+  variance     Int // counted - system
+  applied      Boolean    @default(false) // adjustment posted to ledger?
+
+  @@index([auditId])
+}
+
+// ----------------------------------------------------------------------------
+// SMS marketing (Africa's Talking)
+// ----------------------------------------------------------------------------
+
+model SmsCampaign {
+  id         String         @id @default(cuid())
+  name       String
+  body       String         @db.Text
+  segment    Json? // filter used to pick recipients (tags, lastOrder window…)
+  status     CampaignStatus @default(DRAFT)
+  staffId    String?
+  staff      StaffUser?     @relation(fields: [staffId], references: [id])
+  recipients Int            @default(0)
+  costCents  Int            @default(0)
+  sentAt     DateTime?
+  createdAt  DateTime       @default(now())
+
+  messages   SmsMessage[]
+}
+
+model SmsMessage {
+  id         String      @id @default(cuid())
+  campaignId String?
+  campaign   SmsCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  customerId String?
+  customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  phone      String
+  body       String      @db.Text
+  status     SmsStatus   @default(QUEUED)
+  providerId String? // AT messageId
+  costCents  Int         @default(0)
+  createdAt  DateTime    @default(now())
+
+  @@index([campaignId])
+  @@index([customerId])
+}
+
+// ----------------------------------------------------------------------------
+// Content: reviews, blog, FAQ
+// ----------------------------------------------------------------------------
+
+model Review {
+  id        String   @id @default(cuid())
+  authorName String
+  rating    Int // 1-5
+  body      String   @db.Text
+  verified  Boolean  @default(false)
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([approved])
+}
+
+model BlogPost {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  excerpt     String?
+  body        String    @db.Text
+  coverImage  String?
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Faq {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String   @db.Text
+  position  Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
+// Settings — business config the admin controls (non-secret)
+// ----------------------------------------------------------------------------
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
