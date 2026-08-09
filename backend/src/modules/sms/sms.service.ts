@@ -1,21 +1,23 @@
+import axios from "axios";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
 import { normalizePhone } from "../../lib/phone";
 
-// africastalking has no bundled types; load lazily so the app still boots
-// without the dependency configured (e.g. local dev without AT creds).
-function atClient() {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const AfricasTalking = require("africastalking");
-  return AfricasTalking({ apiKey: env.at.apiKey, username: env.at.username });
-}
+// Africa's Talking messaging endpoint. Sandbox uses the "sandbox" username
+// and a separate host. We hit the REST API directly (form-encoded) rather
+// than pulling in the SDK, which drags in vulnerable transitive deps.
+const AT_HOST =
+  env.at.username === "sandbox"
+    ? "https://api.sandbox.africastalking.com"
+    : "https://api.africastalking.com";
+const AT_URL = `${AT_HOST}/version1/messaging`;
 
 export interface Segment {
-  tags?: string[]; // customer must have at least one of these tags
-  lastOrderWithinDays?: number; // ordered within N days
-  hasOrdered?: boolean; // orderCount > 0
-  marketingConsent?: boolean; // default true
+  tags?: string[];
+  lastOrderWithinDays?: number;
+  hasOrdered?: boolean;
+  marketingConsent?: boolean;
 }
 
 /** Turn a segment into a customer query. */
@@ -33,21 +35,37 @@ export async function resolveSegment(segment: Segment) {
   return prisma.customer.findMany({ where });
 }
 
-/** Send a single transactional SMS (order confirmations etc.). */
-export async function sendSms(phone: string, body: string) {
-  const to = normalizePhone(phone);
-  if (!env.at.apiKey) {
-    console.warn("[sms] AT not configured — skipping send to", to);
+/** Send an SMS to one or more numbers via the AT REST API. */
+export async function sendSms(to: string | string[], body: string) {
+  const recipients = (Array.isArray(to) ? to : [to])
+    .map(normalizePhone)
+    .join(",");
+
+  if (!env.at.apiKey || !env.at.username) {
+    console.warn("[sms] AT not configured — skipping send to", recipients);
     return { skipped: true };
   }
-  const sms = atClient().SMS;
-  const res = await sms.send({ to: [to], message: body, from: env.at.senderId });
-  return res;
+
+  const params = new URLSearchParams({
+    username: env.at.username,
+    to: recipients,
+    message: body,
+  });
+  if (env.at.senderId) params.set("from", env.at.senderId);
+
+  const { data } = await axios.post(AT_URL, params.toString(), {
+    headers: {
+      apiKey: env.at.apiKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+  });
+  return data;
 }
 
 /**
  * Run a promotional campaign: resolve recipients, send, and log each message.
- * Returns counts. Sending is best-effort per recipient.
+ * Sending is best-effort per recipient so one failure doesn't abort the batch.
  */
 export async function runCampaign(campaignId: string) {
   const campaign = await prisma.smsCampaign.findUnique({
@@ -67,24 +85,12 @@ export async function runCampaign(campaignId: string) {
     try {
       await sendSms(c.phone, campaign.body);
       await prisma.smsMessage.create({
-        data: {
-          campaignId,
-          customerId: c.id,
-          phone: c.phone,
-          body: campaign.body,
-          status: "SENT",
-        },
+        data: { campaignId, customerId: c.id, phone: c.phone, body: campaign.body, status: "SENT" },
       });
       sent++;
-    } catch (e) {
+    } catch {
       await prisma.smsMessage.create({
-        data: {
-          campaignId,
-          customerId: c.id,
-          phone: c.phone,
-          body: campaign.body,
-          status: "FAILED",
-        },
+        data: { campaignId, customerId: c.id, phone: c.phone, body: campaign.body, status: "FAILED" },
       });
       failed++;
     }

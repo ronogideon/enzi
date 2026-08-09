@@ -93,3 +93,36 @@ service. Point `MPESA_CALLBACK_URL` at the deployed `/api/payments/mpesa/callbac
 - **Later**: push notifications on new orders, transactional emails on the enzipackaging.co.ke
   domain, Kopo Kopo as an alternate payment provider (already modeled in the schema).
 ```
+
+---
+
+## Deploying on Railway (monorepo — two services, one repo)
+
+This repo holds two independent apps. Railway must be told which subfolder each
+service builds from — otherwise Railpack looks at the repo root, sees two
+folders, and can't determine how to build (the "could not determine how to build
+the app" error).
+
+Create **two services** from the same repo and set each one's **Root Directory**:
+
+**Backend service**
+- Settings → Root Directory: `backend`
+- Railway auto-detects Node. Install runs `postinstall` (`prisma generate`),
+  then `npm run build` (`prisma generate && tsc`), then `npm start`.
+- Add env vars from `backend/.env.example` (DATABASE_URL, MPESA_*, AT_*, JWT_SECRET…).
+- Add a Postgres plugin and point `DATABASE_URL` at it. After first deploy run
+  `npm run db:push` and `npm run seed` (Railway shell or a one-off command).
+
+**Storefront service**
+- Settings → Root Directory: `storefront`
+- Env: `NEXT_PUBLIC_API_URL` = the backend service's public URL + `/api`
+  (e.g. `https://enzi-backend.up.railway.app/api`), plus `NEXT_PUBLIC_SITE_URL`
+  and `NEXT_PUBLIC_WHATSAPP`.
+
+### Security scan
+Railway blocks deploys on vulnerable dependencies. This drop ships:
+- Storefront pinned to `next@^14.2.35` (clears the flagged CVEs) with `postcss`
+  forced to `8.5.26` via an `overrides` entry.
+- Backend with **zero** advisories — the Africa's Talking SDK (which pulled in a
+  vulnerable `lodash`) was dropped in favour of calling the AT REST API directly
+  with `axios`. Lockfiles are committed so the scan sees the pinned versions.
