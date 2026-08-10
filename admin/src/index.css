@@ -1,0 +1,40 @@
+@import "@fontsource/archivo/600.css";
+@import "@fontsource/archivo/700.css";
+@import "@fontsource/archivo/800.css";
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/500.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-ink text-cloud font-sans antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid #5b6cf0;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .card { @apply rounded-2xl border border-ink-line bg-ink-card; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2
+      text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary { @apply btn bg-white text-ink hover:bg-white/90; }
+  .btn-ghost { @apply btn border border-ink-line text-cloud hover:bg-ink-hover; }
+  .btn-danger { @apply btn border border-danger/40 text-danger hover:bg-danger/10; }
+  .field {
+    @apply w-full rounded-lg border border-ink-line bg-ink-800 px-3 py-2 text-sm
+      text-cloud placeholder:text-faint focus:border-indigo/60 focus:outline-none;
+  }
+  .label { @apply mb-1.5 block text-xs font-medium text-muted; }
+  .th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-faint; }
+  .td { @apply px-4 py-3 text-sm text-cloud; }
+}

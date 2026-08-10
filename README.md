@@ -103,7 +103,7 @@ service builds from — otherwise Railpack looks at the repo root, sees two
 folders, and can't determine how to build (the "could not determine how to build
 the app" error).
 
-Create **two services** from the same repo and set each one's **Root Directory**:
+Create **three services** from the same repo and set each one's **Root Directory**:
 
 **Backend service**
 - Settings → Root Directory: `backend`
@@ -119,6 +119,21 @@ Create **two services** from the same repo and set each one's **Root Directory**
   (e.g. `https://enzi-backend.up.railway.app/api`), plus `NEXT_PUBLIC_SITE_URL`
   and `NEXT_PUBLIC_WHATSAPP`.
 
+**Admin service** (staff/admin portal)
+- Settings → Root Directory: `admin`
+- Build runs `tsc --noEmit && vite build`; start runs
+  `node gen-env.mjs && serve -s dist` (a production static server with SPA
+  fallback, so client-side routes survive a refresh — `serve` is a runtime
+  dependency, not a dev one, so it survives Railway's prod prune).
+- Set **`API_URL`** = the backend's public URL + `/api`. `gen-env.mjs` writes
+  it into `dist/env.js` at container start, so the same build works in any
+  environment without a rebuild (no build-time baking). A build-time
+  `VITE_API_URL` is also honoured as a fallback.
+- First login uses the seeded superadmin: `admin@enzipackaging.co.ke` /
+  `changeme123` — change it immediately.
+- Roles: SUPERADMIN/ADMIN see everything; STAFF gets Dashboard, Orders,
+  Products, Stock; SUPPORT gets Dashboard, Orders, Customers.
+
 ### Security scan
 Railway blocks deploys on vulnerable dependencies. This drop ships:
 - Storefront pinned to `next@^14.2.35` (clears the flagged CVEs) with `postcss`
@@ -126,3 +141,7 @@ Railway blocks deploys on vulnerable dependencies. This drop ships:
 - Backend with **zero** advisories — the Africa's Talking SDK (which pulled in a
   vulnerable `lodash`) was dropped in favour of calling the AT REST API directly
   with `axios`. Lockfiles are committed so the scan sees the pinned versions.
+- Admin on `vite@^8` + `@vitejs/plugin-react@^6` (with `esbuild` overridden to
+  `^0.25`), which clears the high-severity Vite dev-server advisories. The
+  remaining `react-router` items are moderate and dev/CSR-only (the SSR-hydration
+  one doesn't apply to this client-rendered SPA).
