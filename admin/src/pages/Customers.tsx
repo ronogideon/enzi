@@ -9,12 +9,40 @@ import {
 export default function Customers() {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const customers = useAsync(() => api.customers(query || undefined), [query]);
+  const customers = useAsync(() => api.customers({ search: query || undefined }), [query]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  /**
+   * Fetched through the API client rather than a plain link so the request
+   * carries the auth header — the export endpoint is staff-only.
+   */
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const blob = await api.downloadCustomersCsv();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `enzi-customers-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <>
-      <PageHeader title="Customers" subtitle="Your customer base — for reorders and marketing" />
+      <PageHeader
+        title="Customers"
+        subtitle="Everyone who has ordered — built automatically at checkout"
+        action={
+          <button className="btn-ghost" onClick={exportCsv} disabled={exporting}>
+            {exporting ? "Preparing…" : "Export CSV"}
+          </button>
+        }
+      />
 
       <form
         onSubmit={(e) => { e.preventDefault(); setQuery(search); }}
@@ -22,11 +50,20 @@ export default function Customers() {
       >
         <input
           className="field max-w-xs"
-          placeholder="Search name or phone…"
+          placeholder="Search name, phone or email…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button className="btn-ghost">Search</button>
+        {query && (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => { setSearch(""); setQuery(""); }}
+          >
+            Clear
+          </button>
+        )}
       </form>
 
       {customers.loading ? (
@@ -41,7 +78,7 @@ export default function Customers() {
             <thead className="border-b border-ink-line">
               <tr>
                 <th className="th">Customer</th>
-                <th className="th">Phone</th>
+                <th className="th">Contact</th>
                 <th className="th text-right">Orders</th>
                 <th className="th text-right">Spent</th>
                 <th className="th">Tags</th>
@@ -51,8 +88,23 @@ export default function Customers() {
             <tbody>
               {customers.data!.map((c) => (
                 <tr key={c.id} className="border-b border-ink-line/60 last:border-0">
-                  <td className="td font-medium text-white">{c.name ?? "—"}</td>
-                  <td className="td text-muted">{c.phone}</td>
+                  <td className="td">
+                    <p className="font-medium text-white">{c.name ?? "—"}</p>
+                    {c.hasAccount && (
+                      <span className="text-[11px] text-faint">has an account</span>
+                    )}
+                  </td>
+                  <td className="td text-muted">
+                    <a href={`tel:+${c.phone}`} className="hover:text-cloud">+{c.phone}</a>
+                    {c.email && (
+                      <a
+                        href={`mailto:${c.email}`}
+                        className="block break-all text-xs text-faint hover:text-cloud"
+                      >
+                        {c.email}
+                      </a>
+                    )}
+                  </td>
                   <td className="td text-right">{c.orderCount}</td>
                   <td className="td text-right">{formatKes(c.totalSpent)}</td>
                   <td className="td">
@@ -93,6 +145,7 @@ function CustomerModal({
   const { data, loading } = useAsync<Customer>(() => api.customer(id), [id]);
   const [tags, setTags] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [email, setEmail] = useState<string>("");
   const [consent, setConsent] = useState(true);
   const [busy, setBusy] = useState(false);
   const [seeded, setSeeded] = useState(false);
@@ -100,6 +153,7 @@ function CustomerModal({
   if (data && !seeded) {
     setTags(data.tags.join(", "));
     setNotes(data.notes ?? "");
+    setEmail(data.email ?? "");
     setConsent(data.marketingConsent);
     setSeeded(true);
   }
@@ -110,6 +164,7 @@ function CustomerModal({
       await api.updateCustomer(id, {
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
         notes: notes || undefined,
+        email: email.trim(),
         marketingConsent: consent,
       });
       onSaved();
@@ -125,13 +180,23 @@ function CustomerModal({
       ) : (
         <>
           <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label="Phone" value={data.phone} />
+            <Stat label="Phone" value={`+${data.phone}`} />
             <Stat label="Orders" value={String(data.orderCount)} />
             <Stat label="Spent" value={formatKes(data.totalSpent)} />
             <Stat label="Last order" value={data.lastOrderAt ? new Date(data.lastOrderAt).toLocaleDateString() : "—"} />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="label">Email</label>
+              <input
+                className="field"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="not provided"
+              />
+            </div>
             <div>
               <label className="label">Tags (comma separated)</label>
               <input className="field" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="vip, wholesale" />

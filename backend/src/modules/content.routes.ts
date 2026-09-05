@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { HttpError } from "../middleware/error";
 import { requireStaff, requireRole } from "../middleware/auth";
 
 const wrap =
@@ -164,55 +166,166 @@ promotionsRouter.patch(
 
 // --------------------------------------------------------------- customers
 export const customersRouter = Router();
+
+/**
+ * The CRM the shop actually runs on. Every checkout upserts a customer by
+ * phone, so this list fills itself whether or not the buyer registered an
+ * account. Staff-only — none of this is reachable from the storefront.
+ */
 customersRouter.get(
   "/",
   requireStaff,
   wrap(async (req, res) => {
-    const { search } = req.query as Record<string, string>;
-    res.json(
-      await prisma.customer.findMany({
-        where: search
-          ? {
-              OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { phone: { contains: search } },
-              ],
-            }
-          : undefined,
-        orderBy: { lastOrderAt: "desc" },
-        take: 100,
-      })
-    );
+    const { search, tag, hasAccount, take } = req.query as Record<string, string>;
+
+    const where: Prisma.CustomerWhereInput = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search.replace(/[^0-9]/g, "") || search } },
+      ];
+    }
+    if (tag) where.tags = { has: tag };
+    if (hasAccount === "true") where.passwordHash = { not: null };
+
+    const customers = await prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        phone: true,
+        name: true,
+        email: true,
+        tags: true,
+        notes: true,
+        marketingConsent: true,
+        orderCount: true,
+        totalSpent: true,
+        lastOrderAt: true,
+        lastLoginAt: true,
+        createdAt: true,
+        // Never select passwordHash — expose only whether one exists.
+        _count: { select: { orders: true } },
+      },
+      orderBy: [{ lastOrderAt: "desc" }, { createdAt: "desc" }],
+      take: Math.min(parseInt(take ?? "200", 10) || 200, 500),
+    });
+
+    // Flag account-holders without ever shipping the hash.
+    const withLogin = await prisma.customer.findMany({
+      where: { id: { in: customers.map((c) => c.id) }, passwordHash: { not: null } },
+      select: { id: true },
+    });
+    const loginSet = new Set(withLogin.map((c) => c.id));
+
+    res.json(customers.map((c) => ({ ...c, hasAccount: loginSet.has(c.id) })));
   })
 );
+
+/** CSV export — the "I need to reach my customers" button. */
+customersRouter.get(
+  "/export.csv",
+  requireRole("SUPERADMIN", "ADMIN", "SUPPORT"),
+  wrap(async (_req, res) => {
+    const customers = await prisma.customer.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        name: true,
+        phone: true,
+        email: true,
+        tags: true,
+        orderCount: true,
+        totalSpent: true,
+        lastOrderAt: true,
+        marketingConsent: true,
+        createdAt: true,
+      },
+    });
+
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [
+      "Name", "Phone", "Email", "Tags", "Orders",
+      "Total spent (KES)", "Last order", "Marketing consent", "Joined",
+    ];
+    const rows = customers.map((c) =>
+      [
+        c.name ?? "",
+        c.phone,
+        c.email ?? "",
+        c.tags.join("|"),
+        c.orderCount,
+        (c.totalSpent / 100).toFixed(2),
+        c.lastOrderAt ? c.lastOrderAt.toISOString().slice(0, 10) : "",
+        c.marketingConsent ? "yes" : "no",
+        c.createdAt.toISOString().slice(0, 10),
+      ].map(esc).join(",")
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="enzi-customers-${new Date().toISOString().slice(0, 10)}.csv"`
+    );
+    res.send([header.join(","), ...rows].join("\n"));
+  })
+);
+
 customersRouter.get(
   "/:id",
   requireStaff,
   wrap(async (req, res) => {
-    res.json(
-      await prisma.customer.findUnique({
-        where: { id: req.params.id },
-        include: {
-          orders: { orderBy: { createdAt: "desc" }, take: 20 },
-          addresses: true,
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, phone: true, name: true, email: true, tags: true, notes: true,
+        marketingConsent: true, orderCount: true, totalSpent: true,
+        lastOrderAt: true, lastLoginAt: true, createdAt: true,
+        addresses: true,
+        orders: {
+          orderBy: { createdAt: "desc" },
+          take: 50,
+          include: { items: true, deliveryMethod: true },
         },
-      })
-    );
+      },
+    });
+    if (!customer) throw new HttpError(404, "Customer not found");
+    res.json(customer);
   })
 );
+
 customersRouter.patch(
   "/:id",
   requireStaff,
   wrap(async (req, res) => {
     const data = z
       .object({
+        name: z.string().optional(),
+        email: z.string().email().optional().or(z.literal("")),
         tags: z.array(z.string()).optional(),
-        notes: z.string().optional(),
+        notes: z.string().max(4000).optional(),
         marketingConsent: z.boolean().optional(),
       })
       .parse(req.body);
+
     res.json(
-      await prisma.customer.update({ where: { id: req.params.id }, data })
+      await prisma.customer.update({
+        where: { id: req.params.id },
+        data: {
+          name: data.name,
+          email: data.email === "" ? null : data.email,
+          tags: data.tags,
+          notes: data.notes,
+          marketingConsent: data.marketingConsent,
+        },
+        select: {
+          id: true, phone: true, name: true, email: true, tags: true, notes: true,
+          marketingConsent: true, orderCount: true, totalSpent: true,
+          lastOrderAt: true, createdAt: true,
+        },
+      })
     );
   })
 );
@@ -330,29 +443,5 @@ faqRouter.post(
       })
       .parse(req.body);
     res.status(201).json(await prisma.faq.create({ data }));
-  })
-);
-
-// ---------------------------------------------------------------- settings
-export const settingsRouter = Router();
-settingsRouter.get(
-  "/",
-  requireStaff,
-  wrap(async (_req, res) => {
-    const rows = await prisma.setting.findMany();
-    res.json(Object.fromEntries(rows.map((r) => [r.key, r.value])));
-  })
-);
-settingsRouter.put(
-  "/:key",
-  requireRole("SUPERADMIN", "ADMIN"),
-  wrap(async (req, res) => {
-    const { value } = z.object({ value: z.any() }).parse(req.body);
-    const row = await prisma.setting.upsert({
-      where: { key: req.params.key },
-      create: { key: req.params.key, value },
-      update: { value },
-    });
-    res.json(row);
   })
 );

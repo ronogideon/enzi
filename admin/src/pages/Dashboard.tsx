@@ -7,7 +7,7 @@ import { PageHeader, StatCard, Spinner, useAsync, EmptyState, Badge } from "@/co
 
 export default function Dashboard() {
   const stats = useAsync(() => api.statsOverview(), []);
-  const series = useAsync(() => api.revenueSeries(), []);
+  const series = useAsync(() => api.revenueSeries(30), []);
 
   if (stats.loading) return <Spinner label="Loading dashboard…" />;
   if (stats.error) return <EmptyState title="Couldn’t load stats" hint={stats.error} />;
@@ -23,10 +23,30 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" subtitle="Business at a glance" />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Revenue (all time)" value={formatKes(s.revenueTotal)} />
-        <StatCard label="Revenue this month" value={formatKes(s.revenueThisMonth)} />
-        <StatCard label="Open orders" value={String(s.openOrders)} sub={`${s.orders} total`} />
-        <StatCard label="Customers" value={String(s.customers)} />
+        <StatCard
+          label="Revenue this month"
+          value={formatKes(s.revenueThisMonth)}
+          sub={
+            s.revenueChangePct === null
+              ? `${formatKes(s.revenueTotal)} all time`
+              : `${s.revenueChangePct >= 0 ? "+" : ""}${s.revenueChangePct}% vs last month`
+          }
+        />
+        <StatCard
+          label="Today"
+          value={formatKes(s.revenueToday)}
+          sub={`${s.ordersToday} order${s.ordersToday === 1 ? "" : "s"} today`}
+        />
+        <StatCard
+          label="Orders to pack"
+          value={String(s.packingQueue)}
+          sub={`${s.awaitingDispatch} to ship · ${s.inTransit} on the way`}
+        />
+        <StatCard
+          label="Customers"
+          value={String(s.customers)}
+          sub={`${s.newCustomersThisMonth} new this month · ${s.accountHolders} with accounts`}
+        />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

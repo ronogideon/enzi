@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
-import { SmartImage } from "@/components/ui";
+import { ProductGallery } from "@/components/ProductGallery";
 import { AddToCartPanel } from "@/components/AddToCartPanel";
 import { ProductCard } from "@/components/ProductCard";
 
@@ -58,28 +58,7 @@ export default async function ProductPage({
 
       <div className="grid gap-12 lg:grid-cols-2">
         {/* gallery */}
-        <div>
-          <div className="card overflow-hidden">
-            <SmartImage
-              src={product.images?.[0]?.url}
-              alt={product.name}
-              className="aspect-square w-full object-cover"
-            />
-          </div>
-          {product.images.length > 1 && (
-            <div className="mt-4 grid grid-cols-4 gap-3">
-              {product.images.slice(0, 4).map((img) => (
-                <div key={img.id} className="card overflow-hidden">
-                  <SmartImage
-                    src={img.url}
-                    alt={img.alt ?? product.name}
-                    className="aspect-square w-full object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductGallery images={product.images ?? []} name={product.name} />
 
         {/* info */}
         <div>

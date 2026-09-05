@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Archivo, Manrope } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/lib/cart";
+import { AccountProvider } from "@/lib/account";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SocialRail, ChatButton } from "@/components/SocialRail";
@@ -42,13 +43,15 @@ export default async function RootLayout({
   return (
     <html lang="en" className={`${display.variable} ${sans.variable}`}>
       <body>
-        <CartProvider>
-          <Header categories={categories} />
-          <main className="min-h-[60vh]">{children}</main>
-          <Footer />
-          <SocialRail />
-          <ChatButton />
-        </CartProvider>
+        <AccountProvider>
+          <CartProvider>
+            <Header categories={categories} />
+            <main className="min-h-[60vh]">{children}</main>
+            <Footer />
+            <SocialRail />
+            <ChatButton />
+          </CartProvider>
+        </AccountProvider>
       </body>
     </html>
   );

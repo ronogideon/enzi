@@ -11,14 +11,20 @@ const c = (kes: number) => kes * 100;
 
 async function main() {
   // ---- admin ----
+  // The password can be overridden at seed time so production never has to go
+  // through a known default:  ADMIN_PASSWORD='...' npm run seed
+  const adminEmail = (process.env.ADMIN_EMAIL ?? "admin@enzipackaging.co.ke").toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD ?? "changeme123";
+
   await prisma.staffUser.upsert({
-    where: { email: "admin@enzipackaging.co.ke" },
+    where: { email: adminEmail },
     update: {},
     create: {
-      name: "Enzi Admin",
-      email: "admin@enzipackaging.co.ke",
-      passwordHash: await bcrypt.hash("changeme123", 10),
+      name: process.env.ADMIN_NAME ?? "Enzi Admin",
+      email: adminEmail,
+      passwordHash: await bcrypt.hash(adminPassword, 10),
       role: "SUPERADMIN",
+      mustChangePassword: adminPassword === "changeme123",
     },
   });
 
@@ -107,7 +113,12 @@ async function main() {
       });
   }
 
-  console.log("Seed complete. Admin: admin@enzipackaging.co.ke / changeme123");
+  console.log("");
+  console.log("  Seed complete.");
+  console.log(`  Admin login: ${adminEmail} / ${adminPassword}`);
+  if (adminPassword === "changeme123")
+    console.log("  ^ default password — change it on first sign-in.");
+  console.log("");
 }
 
 main()

@@ -13,7 +13,8 @@ const NAV: NavItem[] = [
   { to: "/customers", label: "Customers", roles: ["SUPERADMIN", "ADMIN", "SUPPORT"] },
   { to: "/sms", label: "SMS Marketing", roles: ["SUPERADMIN", "ADMIN"] },
   { to: "/delivery", label: "Delivery", roles: ["SUPERADMIN", "ADMIN"] },
-  { to: "/settings", label: "Settings", roles: ["SUPERADMIN", "ADMIN"] },
+  { to: "/staff", label: "Staff accounts", roles: ["SUPERADMIN", "ADMIN"] },
+  { to: "/settings", label: "Settings", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
 ];
 
 export function Layout() {

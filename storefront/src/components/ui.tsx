@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { imageUrl } from "@/lib/api";
 
 /**
  * Image with a branded fallback. The old site showed broken <img> icons
@@ -35,8 +36,11 @@ export function SmartImage({
       </div>
     );
   }
+  // Uploaded photos are stored as "/api/media/<id>" — a path relative to the
+  // API, not to the storefront — so resolve it against the API host here. Doing
+  // it in one place means every gallery, card and cart row gets it for free.
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={alt} className={className} loading="lazy" />;
+  return <img src={imageUrl(src)} alt={alt} className={className} loading="lazy" />;
 }
 
 export function StarRating({

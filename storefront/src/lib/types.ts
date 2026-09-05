@@ -68,6 +68,12 @@ export interface Order {
   total: number;
   isPaid: boolean;
   isPayOnDelivery: boolean;
+  createdAt: string;
+  paidAt?: string | null;
+  packedAt?: string | null;
+  dispatchedAt?: string | null;
+  deliveredAt?: string | null;
+  trackingRef?: string | null;
   items: OrderItem[];
   deliveryMethod?: DeliveryMethod | null;
 }
@@ -91,4 +97,15 @@ export interface Faq {
   id: string;
   question: string;
   answer: string;
+}
+
+export interface CustomerAccount {
+  id: string;
+  phone: string;
+  name?: string | null;
+  email?: string | null;
+  marketingConsent: boolean;
+  orderCount: number;
+  totalSpent: number;
+  createdAt: string;
 }

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Category } from "@/lib/types";
 import { useCart } from "@/lib/cart";
+import { useAccount } from "@/lib/account";
 
 const NAV = [
   { label: "Home", href: "/" },
@@ -19,6 +20,7 @@ export function Header({ categories }: { categories: Category[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const { count } = useCart();
+  const { customer, ready } = useAccount();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -68,6 +70,18 @@ export function Header({ categories }: { categories: Category[] }) {
             </span>
           </div>
           <div className="flex items-center gap-5">
+            {ready && (
+              customer ? (
+                <Link href="/account" className="hover:text-cloud">
+                  {customer.name?.split(" ")[0] ?? "My account"}
+                </Link>
+              ) : (
+                <>
+                  <Link href="/account/login" className="hover:text-cloud">Sign in</Link>
+                  <Link href="/account/register" className="hover:text-cloud">Create account</Link>
+                </>
+              )
+            )}
             <Link href="/cart" className="flex items-center gap-1.5 hover:text-cloud">
               Cart
               {count > 0 && (
@@ -233,6 +247,12 @@ export function Header({ categories }: { categories: Category[] }) {
             ))}
             <MobileLink href="/cart" onClick={() => setMobileOpen(false)}>
               Cart {count > 0 && `(${count})`}
+            </MobileLink>
+            <MobileLink
+              href={customer ? "/account" : "/account/login"}
+              onClick={() => setMobileOpen(false)}
+            >
+              {customer ? "My account" : "Sign in / Create account"}
             </MobileLink>
           </nav>
         </div>

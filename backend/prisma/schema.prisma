@@ -93,18 +93,22 @@ enum CampaignStatus {
 // ----------------------------------------------------------------------------
 
 model StaffUser {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String    @unique
+  phone        String?
   passwordHash String
-  role         Role     @default(STAFF)
-  active       Boolean  @default(true)
+  role         Role      @default(STAFF)
+  active       Boolean   @default(true)
+  mustChangePassword Boolean @default(false)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  stockAudits  StockAudit[]
-  smsCampaigns SmsCampaign[]
+  stockAudits   StockAudit[]
+  smsCampaigns  SmsCampaign[]
+  packedOrders  Order[]        @relation("PackedBy")
+  orderEvents   OrderEvent[]
 }
 
 // ----------------------------------------------------------------------------
@@ -162,11 +166,29 @@ model ProductImage {
   id        String  @id @default(cuid())
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Either an external URL, or /api/media/<mediaId> for an uploaded file.
   url       String
+  mediaId   String?
   alt       String?
   position  Int     @default(0)
 
   @@index([productId])
+}
+
+/// Uploaded binaries live in Postgres so the platform needs no object store —
+/// Railway containers have an ephemeral filesystem, so writing to disk would
+/// lose every product photo on the next deploy.
+model MediaAsset {
+  id        String   @id @default(cuid())
+  filename  String
+  mimeType  String
+  bytes     Bytes
+  size      Int
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // ----------------------------------------------------------------------------
@@ -211,6 +233,7 @@ model Customer {
   totalSpent        Int      @default(0) // cents
   lastOrderAt       DateTime?
 
+  lastLoginAt       DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -284,12 +307,22 @@ model Order {
   isPaid      Boolean     @default(false)
   paidAt      DateTime?
 
+  // Fulfilment — who did what, when. Drives the shop-floor packing queue.
+  packedAt      DateTime?
+  packedById    String?
+  packedBy      StaffUser? @relation("PackedBy", fields: [packedById], references: [id])
+  dispatchedAt  DateTime?
+  deliveredAt   DateTime?
+  trackingRef   String?     // waybill / matatu parcel no. / Mtaani agent code
+  staffNotes    String?     @db.Text
+
   placedAt    DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   items       OrderItem[]
   payments    Payment[]
+  events      OrderEvent[]
 
   @@index([customerId])
   @@index([status])
@@ -312,6 +345,22 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+/// Append-only fulfilment history, so you can always answer "who marked this
+/// packed, and when?" without trusting a single mutable status column.
+model OrderEvent {
+  id        String     @id @default(cuid())
+  orderId   String
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  staffId   String?
+  staff     StaffUser? @relation(fields: [staffId], references: [id])
+  fromStatus String?
+  toStatus   String?
+  note      String?
+  createdAt DateTime   @default(now())
+
+  @@index([orderId])
 }
 
 // ----------------------------------------------------------------------------
@@ -468,5 +517,8 @@ model Faq {
 model Setting {
   key       String   @id
   value     Json
+  /// Secrets (API keys, passkeys) are never returned in full to the browser —
+  /// the settings endpoint masks them to a last-4 preview.
+  secret    Boolean  @default(false)
   updatedAt DateTime @updatedAt
 }

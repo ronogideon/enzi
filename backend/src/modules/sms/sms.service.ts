@@ -1,17 +1,20 @@
 import axios from "axios";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { env } from "../../config/env";
 import { normalizePhone } from "../../lib/phone";
+import { smsConfig } from "../settings/settings.service";
 
 // Africa's Talking messaging endpoint. Sandbox uses the "sandbox" username
 // and a separate host. We hit the REST API directly (form-encoded) rather
 // than pulling in the SDK, which drags in vulnerable transitive deps.
-const AT_HOST =
-  env.at.username === "sandbox"
-    ? "https://api.sandbox.africastalking.com"
-    : "https://api.africastalking.com";
-const AT_URL = `${AT_HOST}/version1/messaging`;
+// Credentials come from the settings service (database first, env second) so
+// they are editable from the admin dashboard.
+const atUrl = (username: string) =>
+  `${
+    username === "sandbox"
+      ? "https://api.sandbox.africastalking.com"
+      : "https://api.africastalking.com"
+  }/version1/messaging`;
 
 export interface Segment {
   tags?: string[];
@@ -41,24 +44,30 @@ export async function sendSms(to: string | string[], body: string) {
     .map(normalizePhone)
     .join(",");
 
-  if (!env.at.apiKey || !env.at.username) {
-    console.warn("[sms] AT not configured — skipping send to", recipients);
-    return { skipped: true };
+  const cfg = await smsConfig();
+  if (!cfg.enabled) {
+    console.warn("[sms] SMS is switched off in settings — skipping", recipients);
+    return { skipped: true, reason: "SMS is switched off in Settings → SMS" };
+  }
+  if (!cfg.apiKey || !cfg.username) {
+    console.warn("[sms] Africa's Talking not configured — skipping", recipients);
+    return { skipped: true, reason: "Africa's Talking credentials are not set" };
   }
 
   const params = new URLSearchParams({
-    username: env.at.username,
+    username: cfg.username,
     to: recipients,
     message: body,
   });
-  if (env.at.senderId) params.set("from", env.at.senderId);
+  if (cfg.senderId) params.set("from", cfg.senderId);
 
-  const { data } = await axios.post(AT_URL, params.toString(), {
+  const { data } = await axios.post(atUrl(cfg.username), params.toString(), {
     headers: {
-      apiKey: env.at.apiKey,
+      apiKey: cfg.apiKey,
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
     },
+    timeout: 30000,
   });
   return data;
 }

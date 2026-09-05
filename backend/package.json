@@ -1,6 +1,6 @@
 {
   "name": "enzi-backend",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Enzi Packaging commerce API",
   "main": "dist/index.js",
   "scripts": {
@@ -10,7 +10,9 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "seed": "tsx prisma/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "reset-admin": "tsx prisma/reset-admin.ts",
+    "db:deploy": "prisma db push --accept-data-loss"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

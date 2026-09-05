@@ -1,0 +1,157 @@
+import { Router } from "express";
+import { z } from "zod";
+import axios from "axios";
+import { requireStaff, requireRole } from "../../middleware/auth";
+import { HttpError } from "../../middleware/error";
+import {
+  describeSettings,
+  setSetting,
+  SETTING_DEFAULTS,
+  mpesaConfig,
+  smsConfig,
+} from "./settings.service";
+
+export const settingsRouter = Router();
+
+const wrap =
+  (fn: (req: any, res: any) => Promise<any>) =>
+  (req: any, res: any, next: any) =>
+    fn(req, res).catch(next);
+
+/**
+ * Read every editable setting. Secrets come back masked, plus a `source` so the
+ * UI can show whether a value is coming from the database or is still falling
+ * back to a Railway environment variable.
+ */
+settingsRouter.get(
+  "/",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json(await describeSettings());
+  })
+);
+
+/** Save one setting. Admins only — this is where the payment keys live. */
+settingsRouter.put(
+  "/:key",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (req, res) => {
+    const key = req.params.key;
+    if (!(key in SETTING_DEFAULTS)) throw new HttpError(400, `Unknown setting: ${key}`);
+
+    const { value } = z
+      .object({ value: z.union([z.string(), z.number(), z.boolean(), z.null()]) })
+      .parse(req.body);
+
+    const asString =
+      value === null || value === undefined ? "" : String(value).trim();
+
+    // Guard against the mask being saved back over a real credential if a
+    // client ever echoes the GET response into a PUT.
+    if (asString.startsWith("••••")) throw new HttpError(400, "Masked value rejected");
+
+    await setSetting(key, asString);
+    res.json({ ok: true, key });
+  })
+);
+
+/** Save several at once — the Settings page saves a whole tab in one click. */
+settingsRouter.put(
+  "/",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (req, res) => {
+    const { values } = z
+      .object({ values: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])) })
+      .parse(req.body);
+
+    const saved: string[] = [];
+    for (const [key, raw] of Object.entries(values)) {
+      if (!(key in SETTING_DEFAULTS)) continue;
+      const asString = raw === null || raw === undefined ? "" : String(raw).trim();
+      if (asString.startsWith("••••")) continue; // unchanged secret — leave it alone
+      await setSetting(key, asString);
+      saved.push(key);
+    }
+    res.json({ ok: true, saved });
+  })
+);
+
+/**
+ * Verify the saved M-Pesa credentials by asking Daraja for an access token.
+ * Cheap, side-effect free, and tells the owner immediately whether the keys
+ * they just pasted actually work — rather than finding out at checkout.
+ */
+settingsRouter.post(
+  "/test/mpesa",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (_req, res) => {
+    const cfg = await mpesaConfig();
+    const missing = (["consumerKey", "consumerSecret", "shortcode", "passkey"] as const)
+      .filter((k) => !cfg[k]);
+    if (missing.length)
+      return res.status(400).json({ ok: false, error: `Missing: ${missing.join(", ")}` });
+
+    const host =
+      cfg.env === "production"
+        ? "https://api.safaricom.co.ke"
+        : "https://sandbox.safaricom.co.ke";
+    const auth = Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString("base64");
+
+    try {
+      const { data } = await axios.get(
+        `${host}/oauth/v1/generate?grant_type=client_credentials`,
+        { headers: { Authorization: `Basic ${auth}` }, timeout: 15000 }
+      );
+      if (!data?.access_token)
+        return res.status(400).json({ ok: false, error: "Daraja returned no access token" });
+      res.json({
+        ok: true,
+        message: `Authenticated against ${cfg.env}. Shortcode ${cfg.shortcode}.`,
+        callbackUrl: cfg.callbackUrl || "(not set — payments cannot confirm)",
+      });
+    } catch (e: any) {
+      res.status(400).json({
+        ok: false,
+        error:
+          e?.response?.data?.errorMessage ??
+          e?.response?.statusText ??
+          e?.message ??
+          "Could not reach Daraja",
+      });
+    }
+  })
+);
+
+/** Same idea for Africa's Talking: check the key by reading the balance. */
+settingsRouter.post(
+  "/test/sms",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (_req, res) => {
+    const cfg = await smsConfig();
+    if (!cfg.apiKey || !cfg.username)
+      return res.status(400).json({ ok: false, error: "Missing username or API key" });
+
+    const host =
+      cfg.username === "sandbox"
+        ? "https://api.sandbox.africastalking.com"
+        : "https://api.africastalking.com";
+    try {
+      const { data } = await axios.get(`${host}/version1/user`, {
+        params: { username: cfg.username },
+        headers: { apiKey: cfg.apiKey, Accept: "application/json" },
+        timeout: 15000,
+      });
+      res.json({
+        ok: true,
+        message: `Connected as ${cfg.username}. Balance: ${
+          data?.UserData?.balance ?? "unknown"
+        }`,
+      });
+    } catch (e: any) {
+      res.status(400).json({
+        ok: false,
+        error: e?.response?.data?.message ?? e?.message ?? "Could not reach Africa's Talking",
+      });
+    }
+  })
+);

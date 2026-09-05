@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Login from "@/pages/Login";
@@ -10,6 +10,7 @@ import Promotions from "@/pages/Promotions";
 import Customers from "@/pages/Customers";
 import Sms from "@/pages/Sms";
 import Delivery from "@/pages/Delivery";
+import StaffPage from "@/pages/Staff";
 import Settings from "@/pages/Settings";
 
 export default function App() {
@@ -74,13 +75,15 @@ export default function App() {
           }
         />
         <Route
-          path="/settings"
+          path="/staff"
           element={
             <ProtectedRoute roles={["SUPERADMIN", "ADMIN"]}>
-              <Settings />
+              <StaffPage />
             </ProtectedRoute>
           }
         />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

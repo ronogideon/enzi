@@ -4,24 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/lib/cart";
+import { useAccount, normalizePhone, isValidPhone as validPhone } from "@/lib/account";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
 import type { DeliveryMethod, PricedCart } from "@/lib/types";
 
 type Phase = "form" | "paying" | "pending";
 
-function normalizePhone(input: string): string {
-  let p = input.replace(/[^0-9+]/g, "");
-  if (p.startsWith("+")) p = p.slice(1);
-  if (p.startsWith("0")) p = "254" + p.slice(1);
-  if (p.startsWith("7") || p.startsWith("1")) p = "254" + p;
-  return p;
-}
-const validPhone = (p: string) => /^254(7|1)\d{8}$/.test(normalizePhone(p));
-
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, tier, clear } = useCart();
+  const { customer, ready: accountReady } = useAccount();
 
   const [methods, setMethods] = useState<DeliveryMethod[]>([]);
   const [priced, setPriced] = useState<PricedCart | null>(null);
@@ -32,6 +25,43 @@ export default function CheckoutPage() {
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<string | null>(null);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+  const [prefilled, setPrefilled] = useState(false);
+  const [existingAccount, setExistingAccount] = useState<{ name: string | null } | null>(null);
+
+  // Autofill from the signed-in account. Runs once, so it never fights with
+  // someone deliberately ordering on behalf of a colleague.
+  useEffect(() => {
+    if (!accountReady || !customer || prefilled) return;
+    setForm((f) => ({
+      ...f,
+      name: f.name || customer.name || "",
+      phone: f.phone || customer.phone || "",
+      email: f.email || customer.email || "",
+    }));
+    setPrefilled(true);
+  }, [accountReady, customer, prefilled]);
+
+  /**
+   * If a guest types a number that already has an account, say so rather than
+   * letting them re-enter details they have already saved. Purely a nudge —
+   * guest checkout still works exactly as before.
+   */
+  useEffect(() => {
+    if (customer || !validPhone(form.phone)) {
+      setExistingAccount(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .checkPhone(form.phone)
+        .then((r) => {
+          if (!cancelled) setExistingAccount(r.hasLogin ? { name: r.name } : null);
+        })
+        .catch(() => undefined);
+    }, 600);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [form.phone, customer]);
 
   // load delivery methods + price the cart
   useEffect(() => {
@@ -209,7 +239,30 @@ export default function CheckoutPage() {
         {/* details */}
         <div className="space-y-8">
           <section>
-            <p className="eyebrow mb-4">Your details</p>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <p className="eyebrow">Your details</p>
+              {accountReady && !customer && (
+                <Link
+                  href="/account/login?next=/checkout"
+                  className="text-xs text-muted underline hover:text-cloud"
+                >
+                  Sign in to autofill
+                </Link>
+              )}
+            </div>
+
+            {existingAccount && (
+              <div className="mb-4 rounded-xl border border-indigo/30 bg-indigo/10 px-4 py-3 text-sm">
+                <span className="text-cloud">
+                  {existingAccount.name ? `Welcome back, ${existingAccount.name}.` : "This number has an account."}
+                </span>{" "}
+                <Link href="/account/login?next=/checkout" className="text-white underline">
+                  Sign in
+                </Link>{" "}
+                <span className="text-muted">— or keep going as a guest.</span>
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <input
                 className="field"
@@ -225,11 +278,15 @@ export default function CheckoutPage() {
               />
               <input
                 className="field sm:col-span-2"
-                placeholder="Email (optional)"
+                type="email"
+                placeholder="Email — for your receipt"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
             </div>
+            <p className="mt-2 text-xs text-faint">
+              We use your phone for M-Pesa and delivery, and your email for the receipt.
+            </p>
           </section>
 
           <section>

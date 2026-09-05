@@ -10,9 +10,19 @@ export function ProtectedRoute({
   roles?: Role[];
 }) {
   const { staff, ready } = useAuth();
-  if (!ready) return null;
+
+  // While the stored session is being confirmed against the server, show a
+  // placeholder rather than a blank page — a flash of nothing looks like a
+  // crash, and bouncing to /login would sign people out on every refresh.
+  if (!ready) {
+    return (
+      <div className="grid min-h-screen place-items-center">
+        <span className="h-6 w-6 animate-spin rounded-full border-2 border-indigo border-t-transparent" />
+      </div>
+    );
+  }
+
   if (!staff) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(staff.role))
-    return <Navigate to="/" replace />;
+  if (roles && !roles.includes(staff.role)) return <Navigate to="/" replace />;
   return children;
 }
