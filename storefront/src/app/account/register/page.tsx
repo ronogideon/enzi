@@ -53,6 +53,7 @@ export default function RegisterPage() {
   const [phoneCheck, setPhoneCheck] = useState<Check>("idle");
   const [error, setError] = useState<string | null>(null);
   const [configProblem, setConfigProblem] = useState<string | null>(null);
+  const [selfPointing, setSelfPointing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
@@ -124,10 +125,13 @@ export default function RegisterPage() {
   // as an explanation rather than as a mystery error on submit.
   useEffect(() => {
     api.health().then((h) => {
-      if (!h.ok)
-        setConfigProblem(
-          `${h.error} The shop is trying to reach ${h.url}. Sign-up won't work until that's fixed.`
-        );
+      if (h.ok) return;
+      setSelfPointing(!!h.selfPointing);
+      setConfigProblem(
+        h.selfPointing
+          ? h.error!
+          : `${h.error} The shop is trying to reach ${h.url}.`
+      );
     });
   }, []);
 
@@ -181,9 +185,17 @@ export default function RegisterPage() {
           <div className="mt-6 rounded-xl border border-gold/30 bg-gold/10 p-4 text-sm">
             <p className="font-medium text-gold">Sign-up isn't available right now</p>
             <p className="mt-1 text-muted">{configProblem}</p>
-            <p className="mt-2 text-xs text-faint">
-              You can still order as a guest at checkout, or reach us on WhatsApp.
-            </p>
+            {selfPointing ? (
+              <p className="mt-2 text-xs text-faint">
+                For whoever runs this site: set{" "}
+                <code className="text-cloud">API_URL</code> to the backend service's
+                public address — not this one — and restart the storefront.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-faint">
+                You can still order as a guest at checkout, or reach us on WhatsApp.
+              </p>
+            )}
           </div>
         )}
 

@@ -59,8 +59,23 @@ function resolveBase(): string {
 
 export let BASE = resolveBase();
 
+/**
+ * True when the configured API address is the admin app's own origin. The
+ * admin is served by a static file server in SPA mode, so /api/... returns
+ * index.html rather than JSON — which surfaces as a baffling parse error.
+ * Naming the mistake is far more useful than reporting its symptom.
+ */
+export function isSelfPointing(): boolean {
+  try {
+    return new URL(BASE).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export const apiBase = {
   get: () => BASE,
+  isSelfPointing,
   /** Whether the base came from an operator override rather than config. */
   isOverridden: () => {
     try { return !!localStorage.getItem(OVERRIDE_KEY); } catch { return false; }
@@ -159,6 +174,16 @@ export const api = {
     database?: "ok" | "unreachable" | "no-schema";
   }> {
     const url = `${BASE}/health`;
+
+    if (isSelfPointing())
+      return {
+        ok: false,
+        url,
+        error:
+          "The API URL is set to this dashboard's own address. The backend is a " +
+          "separate service and needs its own address.",
+      };
+
     try {
       const res = await fetch(url, { method: "GET" });
       if (!res.ok)

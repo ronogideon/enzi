@@ -1,115 +1,128 @@
-# Deploy checklist — Enzi v0.4.1
+# Deploy checklist — Enzi v0.4.2
 
-Do these in order.
+Backend is confirmed healthy at `api.enzipackaging.com`. This drop fixes the
+storefront's API address, which was compiled into the build and therefore
+unfixable from Railway variables.
 
 ---
 
-## 1. Backend: redeploy, then push the schema
+## 1. Storefront service — replace the variable
 
-Deploy the new backend code first, then in its Railway shell:
-
-```bash
-npm run db:push
-```
-
-If this previously said `prisma: not found`, that was the bug — `prisma` was a
-devDependency and Railway strips those from the production image. It's a runtime
-dependency now, so the command works.
-
-## 2. Read the backend deploy log — your login is in it
-
-On boot, if no staff account exists, the backend creates one and prints:
+**Remove:**
 
 ```
-================================================================
-[enzi] No staff accounts existed, so an owner account was created:
-
-    Email:    admin@enzipackaging.co.ke
-    Password: changeme123
-================================================================
+NEXT_PUBLIC_API_URL
 ```
 
-**That is why `changeme123` didn't work before: the account was never created.**
-`npm run seed` runs through `tsx`, which Railway had pruned, so the seed silently
-failed and there was nothing to sign in to.
-
-To pick your own credentials, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Railway
-*before* this deploy.
-
-## 3. Admin: set the API URL
-
-Railway → **admin** service → Variables:
+**Add:**
 
 ```
-API_URL = https://<your-backend-service>.up.railway.app
+API_URL  = https://api.enzipackaging.com
+WHATSAPP = 254110050620
 ```
 
-Redeploy. The log should print the resolved URL. The login page now tells you
-which of these is wrong, instead of failing silently:
+`API_URL` is now read at runtime, so from this deploy onward you can change it
+and just restart — no rebuild.
 
-| What you see | What it means |
+Two rules for the value:
+
+- **Include `https://`.** A bare hostname isn't an absolute URL, so the browser
+  treats it as a relative path and sends every call back to the storefront. That
+  is exactly what produced `enzi-production.up.railway.app/api/auth/customer/login`
+  with no scheme in front of it. The code now adds a missing scheme, but be
+  explicit.
+- **Don't use Railway's `${{service.RAILWAY_PUBLIC_DOMAIN}}` reference.** It
+  resolves to a bare host with no scheme — the same trap.
+
+The trailing `/api` is added for you.
+
+## 2. Redeploy the storefront, then read the log
+
+You should see:
+
+```
+[storefront] API_URL = https://api.enzipackaging.com/api
+[storefront] API reachable (v0.4.1, database: ok)
+```
+
+If instead you get the boxed `API_URL IS NOT SET` warning, or a
+`could not reach` line, the variable is wrong and the log says how.
+
+## 3. Verify in the browser
+
+Open the shop and check the console:
+
+```js
+window.__ENV__
+// { API_URL: "https://api.enzipackaging.com/api", WHATSAPP: "254110050620" }
+```
+
+That value now comes from the server on each request. If it's wrong, fix the
+variable and restart — you no longer need a rebuild to change it.
+
+Then try signup. Product images loading is the other good signal, since those
+are served from the API too.
+
+## 4. Admin service — when you add the custom domain
+
+`API_URL` stays as it is:
+
+```
+API_URL = https://api.enzipackaging.com
+```
+
+Nothing to change. Point `dashboard.enzipackaging.com` at the admin service and
+it keeps working.
+
+## 5. Backend — leave CORS open
+
+```
+CORS_ORIGINS = (blank)
+```
+
+Blank reflects any origin, which is safe here because auth is a Bearer token in
+a header, not a cookie. You're currently serving from six origins (three custom
+domains plus three Railway ones); an allow-list that misses any of them fails
+only on that origin, which is a miserable thing to debug.
+
+Also update in the admin, **Settings → Payments**:
+
+```
+Callback URL = https://api.enzipackaging.com/api/payments/mpesa/callback
+```
+
+Then hit **Test M-Pesa connection**.
+
+---
+
+## Then work through the shop
+
+- [ ] **Settings → My account** — change the default password if you haven't.
+- [ ] **Staff accounts** — add your employees. Packers get **STAFF**: orders,
+      packing and stock, but not your payment keys.
+- [ ] **Products** — upload real photos, confirm they appear on the storefront.
+- [ ] **Storefront** — register an account, place a test order end to end.
+- [ ] **Orders → To pack** — start packing → packed → shipped, and check your
+      name lands in the history sidebar.
+
+---
+
+## If something still fails
+
+The frontends now name the problem rather than making you infer it:
+
+| Message | Cause |
 |---|---|
-| "Can't reach the API" | `API_URL` is wrong, or the backend is down |
-| "The database has no tables yet" | Step 1 didn't run |
-| "No staff account exists yet" | Step 2 hasn't happened — no password will work |
-| "Invalid email or password" | The account exists; this one really is the password |
+| "Can't reach the API" | `API_URL` wrong, or backend down |
+| "pointed at its own web address" | `API_URL` is the storefront's own domain |
+| "The database has no tables yet" | Run `npm run db:push` on the backend |
+| "No staff account exists yet" | Restart the backend; it creates one and logs it |
+| "Invalid email or password" | The account exists — this really is the password |
 
-## 4. Storefront: set the API URL — this is your signup 404
-
-Railway → **storefront** service → Variables:
-
-```
-NEXT_PUBLIC_API_URL = https://<your-backend-service>.up.railway.app
-```
-
-**Then redeploy the storefront.** Next.js bakes `NEXT_PUBLIC_*` values in at
-*build* time, so setting the variable without rebuilding changes nothing.
-
-Your "Request failed 404" was the browser getting an HTML page instead of JSON —
-the request never reached the backend at all. A real backend 404 would have said
-"No route for POST /api/…". The sign-up page now checks the connection on load
-and says plainly which address it's trying, rather than failing on submit.
-
-Quick check from your own machine:
+Backend shell commands:
 
 ```bash
-curl https://<your-backend-service>.up.railway.app/api/health
-```
-
-Expect JSON with `"ok": true`. Anything else — HTML, a redirect, nothing — and
-the URL is wrong.
-
----
-
-## 5. Once you're in
-
-- [ ] **Settings → My account** — change the default password.
-- [ ] **Settings → Payments** — Daraja keys, callback URL set to
-      `https://<your-backend>.up.railway.app/api/payments/mpesa/callback`,
-      then **Test M-Pesa connection**. Payments never confirm without that URL.
-- [ ] **Settings → SMS** — Africa's Talking credentials. Test it.
-- [ ] **Staff accounts** — add your employees. Packers get the **STAFF** role:
-      orders, packing and stock, but not your payment keys. Each gets a
-      temporary password shown once — copy it before closing the dialog.
-- [ ] **Products** — upload real photos on one product, then confirm it appears
-      on the storefront product page.
-- [ ] **Storefront** — register an account, then place a test order end to end.
-- [ ] **Orders → To pack** — walk it: start packing → packed → shipped. Check
-      your name appears against each step in the history sidebar.
-
----
-
-## Stuck?
-
-From the backend's Railway shell:
-
-```bash
-npm run whoami        # which staff accounts exist (never prints hashes)
-
+npm run whoami        # which staff accounts exist (no hashes printed)
 ADMIN_EMAIL=you@enzipackaging.co.ke \
   ADMIN_PASSWORD='choose-something-strong' npm run reset-admin
 ```
-
-No shell access? Set `ADMIN_RESET_PASSWORD` in Railway, redeploy, sign in, then
-**delete that variable** — while it's set your password resets on every deploy,
-and the logs will keep warning you.

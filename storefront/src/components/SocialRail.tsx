@@ -1,10 +1,16 @@
-const WHATSAPP = process.env.NEXT_PUBLIC_WHATSAPP ?? "254110050620";
+/** Read at runtime from window.__ENV__ (browser) or process.env (server), so
+ * the number is changeable from Railway without a rebuild. */
+function whatsappNumber(): string {
+  if (typeof window !== "undefined" && window.__ENV__?.WHATSAPP)
+    return window.__ENV__.WHATSAPP;
+  return process.env.WHATSAPP ?? process.env.NEXT_PUBLIC_WHATSAPP ?? "254110050620";
+}
 
 export function SocialRail() {
   const items = [
     { label: "Instagram", href: "https://instagram.com", glyph: "IG" },
     { label: "TikTok", href: "https://tiktok.com", glyph: "TT" },
-    { label: "WhatsApp", href: `https://wa.me/${WHATSAPP}`, glyph: "WA" },
+    { label: "WhatsApp", href: `https://wa.me/${whatsappNumber()}`, glyph: "WA" },
   ];
   return (
     <div className="fixed right-4 top-1/2 z-40 hidden -translate-y-1/2 flex-col gap-3 lg:flex">
@@ -27,7 +33,7 @@ export function SocialRail() {
 export function ChatButton() {
   return (
     <a
-      href={`https://wa.me/${WHATSAPP}`}
+      href={`https://wa.me/${whatsappNumber()}`}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat on WhatsApp"

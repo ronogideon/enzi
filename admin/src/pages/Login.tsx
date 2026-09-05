@@ -88,12 +88,18 @@ export default function Login() {
             <p className="mt-2 break-all text-xs text-faint">
               Trying: <span className="text-cloud">{health!.url}</span>
             </p>
-            {!apiBase.isConfigured() && !apiBase.isOverridden() && (
+            {apiBase.isSelfPointing() ? (
+              <p className="mt-2 text-xs text-gold">
+                <code>API_URL</code> is pointing at this dashboard instead of the backend.
+                In Railway, open the <strong>backend</strong> service → Settings → Networking
+                → Generate Domain, then use that address here.
+              </p>
+            ) : !apiBase.isConfigured() && !apiBase.isOverridden() ? (
               <p className="mt-2 text-xs text-gold">
                 No API URL is configured. On Railway, set <code>API_URL</code> on the admin
                 service to your backend's public URL (it can end in <code>/api</code> or not).
               </p>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={() => setShowFixer((v) => !v)}

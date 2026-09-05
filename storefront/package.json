@@ -1,11 +1,11 @@
 {
   "name": "enzi-storefront",
-  "version": "0.2.0",
+  "version": "0.4.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node check-env.mjs; next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

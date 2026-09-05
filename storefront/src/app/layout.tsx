@@ -7,6 +7,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SocialRail, ChatButton } from "@/components/SocialRail";
 import { api } from "@/lib/api";
+import { serverEnv } from "@/lib/runtime-env";
 
 const display = Archivo({
   subsets: ["latin"],
@@ -40,8 +41,22 @@ export default async function RootLayout({
 }) {
   const categories = await api.categories();
 
+  // Resolved on the server at request time and handed to the browser, so the
+  // API address is never compiled into the bundle. Changing the Railway
+  // variable and restarting is enough — no rebuild.
+  const env = serverEnv();
+
   return (
     <html lang="en" className={`${display.variable} ${sans.variable}`}>
+      <head>
+        <script
+          // Must run before any client component reads it, so it goes in <head>
+          // rather than being deferred to the end of the body.
+          dangerouslySetInnerHTML={{
+            __html: `window.__ENV__=${JSON.stringify(env)};`,
+          }}
+        />
+      </head>
       <body>
         <AccountProvider>
           <CartProvider>

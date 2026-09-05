@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.4.1 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.4.2 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -258,8 +258,9 @@ looks at the repo root, sees three folders, and can't determine how to build.
 `DATABASE_URL` at it. Set `JWT_SECRET`. Leave `CORS_ORIGINS` blank unless you
 have a specific reason. After first deploy: `npm run db:push && npm run seed`.
 
-**Storefront** — Root Directory `storefront`. Set `NEXT_PUBLIC_API_URL` to the
-backend's public URL, plus `NEXT_PUBLIC_SITE_URL` and `NEXT_PUBLIC_WHATSAPP`.
+**Storefront** — Root Directory `storefront`. Set `API_URL` to the backend's
+public URL (include `https://`), and `WHATSAPP` to your number. Both are read at
+runtime, so changing them needs only a restart.
 
 **Admin** — Root Directory `admin`. Set **`API_URL`** to the backend's public
 URL. Build runs `tsc --noEmit && vite build`; start runs
@@ -291,6 +292,48 @@ one, so it survives Railway's production prune).
 | `stats` | Dashboard overview, revenue series, top products |
 | `settings` | Business config + payment/SMS credentials, connection tests |
 | `categories`, `delivery-methods`, `promotions`, `reviews`, `blog`, `faqs` | Content |
+
+---
+
+## Configuration is read at runtime, not baked into the build
+
+`NEXT_PUBLIC_*` variables are compiled into the JavaScript bundle by Next.js at
+**build** time. That made a wrong API address impossible to correct by editing a
+Railway variable — the old value stayed in the bundle until a full rebuild, and
+restarting the service changed nothing.
+
+The storefront now resolves its API address the same way the admin always has:
+`process.env` is read on the server at request time and handed to the browser
+via a small `window.__ENV__` script in the root layout. Nothing is compiled in.
+Set `API_URL`, restart, done.
+
+`NEXT_PUBLIC_API_URL` still works as a fallback so local development and any
+existing setup keep running.
+
+### The missing-scheme trap
+
+A bare hostname is not an absolute URL. Given `api.enzipackaging.com`, the
+browser treats it as a **relative path** and resolves it against the current
+page, so every API call goes back to the storefront, which answers with an HTML
+404. The symptom is an error naming a URL with no `https://` in front of it.
+
+Railway's `${{service.RAILWAY_PUBLIC_DOMAIN}}` reference resolves to exactly
+such a bare host, which makes this easy to hit by accident. Both frontends now
+add a missing scheme (`https://`, or `http://` for localhost), and the
+storefront logs a note when it has had to do so. Write the full URL anyway.
+
+### Startup diagnostics
+
+`npm start` runs `check-env.mjs` first, which prints the resolved address and
+probes `/health`:
+
+```
+[storefront] API_URL = https://api.enzipackaging.com/api
+[storefront] API reachable (v0.4.1, database: ok)
+```
+
+It never blocks boot — a storefront that can't reach its API should still serve
+pages so customers can browse and reach you on WhatsApp while it's fixed.
 
 ---
 

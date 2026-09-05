@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 
-const WHATSAPP = process.env.NEXT_PUBLIC_WHATSAPP ?? "254110050620";
+/** Read at runtime from window.__ENV__ (browser) or process.env (server), so
+ * the number is changeable from Railway without a rebuild. */
+function whatsappNumber(): string {
+  if (typeof window !== "undefined" && window.__ENV__?.WHATSAPP)
+    return window.__ENV__.WHATSAPP;
+  return process.env.WHATSAPP ?? process.env.NEXT_PUBLIC_WHATSAPP ?? "254110050620";
+}
 
 export default function ContactPage() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
@@ -13,7 +19,7 @@ export default function ContactPage() {
     form.email
   )}%0A%0A${encodeURIComponent(form.message)}`;
 
-  const waHref = `https://wa.me/${WHATSAPP}?text=${composed}`;
+  const waHref = `https://wa.me/${whatsappNumber()}?text=${composed}`;
   const mailHref = `mailto:info@enzipackaging.co.ke?subject=${encodeURIComponent(
     "Website enquiry"
   )}&body=${composed}`;
@@ -46,7 +52,7 @@ export default function ContactPage() {
             href="mailto:info@enzipackaging.co.ke"
           />
           <a
-            href={`https://wa.me/${WHATSAPP}`}
+            href={`https://wa.me/${whatsappNumber()}`}
             target="_blank"
             rel="noopener noreferrer"
             className="card card-hover flex items-center gap-4 p-5"

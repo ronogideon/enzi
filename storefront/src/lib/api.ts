@@ -2,15 +2,30 @@ import type {
   Category, Product, DeliveryMethod, PricedCart, Order,
   Review, BlogPost, Faq, Tier, CustomerAccount,
 } from "./types";
+import { serverEnv, normalizeApiUrl, type RuntimeEnv } from "./runtime-env";
 
-const RAW_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
-/** Trim trailing slashes and ensure exactly one /api suffix. */
-const BASE = (() => {
-  let u = RAW_BASE.trim().replace(/\/+$/, "");
-  if (!u) return "http://localhost:4000/api";
-  if (!/\/api$/i.test(u)) u = `${u}/api`;
-  return u;
-})();
+declare global {
+  interface Window { __ENV__?: Partial<RuntimeEnv>; }
+}
+
+/**
+ * The API base is resolved per call, not frozen at module load:
+ *
+ *   - On the server it comes from process.env at request time, so a Railway
+ *     variable change takes effect on restart with no rebuild.
+ *   - In the browser it comes from window.__ENV__, injected by the root layout.
+ *
+ * Nothing is compiled into the bundle any more, which is what made a wrong
+ * NEXT_PUBLIC_API_URL impossible to correct without a full redeploy.
+ */
+export function apiBase(): string {
+  if (typeof window === "undefined") return serverEnv().API_URL;
+  const injected = window.__ENV__?.API_URL;
+  if (injected) return injected;
+  // The layout always injects this. Reaching here means the script didn't run,
+  // so fall back to same-origin rather than to a hardcoded host.
+  return normalizeApiUrl(window.location.origin);
+}
 
 export const TOKEN_KEY = "enzi.customer.token";
 
@@ -19,18 +34,33 @@ function token(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
+/**
+ * True when the configured API address is the storefront's own origin. That
+ * can never be right: the Next.js app has no /api routes, so every call comes
+ * back as an HTML 404 page. Worth naming explicitly because the resulting
+ * "Request failed (404)" gives no hint about the actual cause.
+ */
+export function isSelfPointing(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(apiBase()).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Product images are served by the API, so relative paths need the API host. */
 export function imageUrl(url?: string | null): string {
   if (!url) return "";
   if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;
-  return `${BASE.replace(/\/api$/, "")}${url}`;
+  return `${apiBase().replace(/\/api$/, "")}${url}`;
 }
 
 /** Server-side GET with no caching; returns a fallback instead of throwing so
  * a backend hiccup degrades gracefully rather than 500-ing the page. */
 async function get<T>(path: string, fallback: T): Promise<T> {
   try {
-    const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+    const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
     if (!res.ok) return fallback;
     return (await res.json()) as T;
   } catch {
@@ -58,7 +88,7 @@ export async function request<T>(
     if (t) headers.Authorization = `Bearer ${t}`;
   }
 
-  const url = `${BASE}${path}`;
+  const url = `${apiBase()}${path}`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -68,7 +98,7 @@ export async function request<T>(
     });
   } catch {
     throw new ApiError(
-      `Couldn't reach the server at ${BASE}. Check your connection and try again.`,
+      `Couldn't reach the server at ${apiBase()}. Check your connection and try again.`,
       { url, kind: "network" }
     );
   }
@@ -86,12 +116,16 @@ export async function request<T>(
 
     // Non-JSON body => we're not talking to the API.
     const looksLikeHtml = /^\s*<(!doctype|html)/i.test(text);
-    if (res.status === 404 && looksLikeHtml)
+    if (res.status === 404 && looksLikeHtml) {
+      const detail = isSelfPointing()
+        ? `It called ${url}, which is this website's own address — not the shop's server. ` +
+          `Those need to be two separate addresses.`
+        : `It called ${url} and got a web page back instead of the shop's server.`;
       throw new ApiError(
-        `The shop is pointed at the wrong address for its server, so signing up can't work yet. ` +
-          `It tried ${url} and got a web page instead of the API.`,
+        `The shop is pointed at the wrong address for its server, so this can't work yet. ${detail}`,
         { url, kind: "misconfigured", status: 404 }
       );
+    }
 
     throw new ApiError(`Request failed (${res.status}) at ${url}`, {
       url,
@@ -126,11 +160,29 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  base: BASE,
+  get base() {
+    return apiBase();
+  },
 
   /** Is the API reachable at the configured address? Used by the sign-up page. */
-  async health(): Promise<{ ok: boolean; url: string; error?: string }> {
-    const url = `${BASE}/health`;
+  async health(): Promise<{ ok: boolean; url: string; error?: string; selfPointing?: boolean }> {
+    const url = `${apiBase()}/health`;
+
+    // The most common misconfiguration by far: NEXT_PUBLIC_API_URL left unset
+    // or set to the storefront's own address, so /api/... hits Next.js and
+    // gets an HTML 404 back. Detect it by name rather than making someone
+    // infer it from a generic error.
+    if (isSelfPointing()) {
+      return {
+        ok: false,
+        url,
+        selfPointing: true,
+        error:
+          "The shop is configured to use its own web address as its API address. " +
+          "Those have to be two different services.",
+      };
+    }
+
     try {
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) return { ok: false, url, error: `The server answered ${res.status}.` };
@@ -210,7 +262,7 @@ export const api = {
       phone,
     }),
   paymentStatus: (checkoutRequestId: string) =>
-    fetch(`${BASE}/payments/status/${checkoutRequestId}`).then((r) => r.json()),
+    fetch(`${apiBase()}/payments/status/${checkoutRequestId}`).then((r) => r.json()),
   submitReview: (body: { authorName: string; rating: number; body: string }) =>
     post<Review>("/reviews", body),
 };
