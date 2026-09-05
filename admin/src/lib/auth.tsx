@@ -8,9 +8,11 @@ interface AuthState {
   staff: Staff | null;
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: (reason?: "idle" | "expired") => void;
   can: (roles: Role[]) => boolean;
   refresh: () => Promise<void>;
+  /** Why the last sign-out happened, so the login page can explain it. */
+  signedOutReason: "idle" | "expired" | null;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -19,6 +21,7 @@ const STAFF_KEY = "enzi.admin.staff";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [ready, setReady] = useState(false);
+  const [signedOutReason, setSignedOutReason] = useState<"idle" | "expired" | null>(null);
 
   /**
    * Rehydrate from localStorage first so a refresh doesn't flash the login
@@ -57,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.set(token);
     localStorage.setItem(STAFF_KEY, JSON.stringify(signedIn));
     setStaff(signedIn);
+    setSignedOutReason(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -65,10 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STAFF_KEY, JSON.stringify(fresh));
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback((reason?: "idle" | "expired") => {
     tokenStore.clear();
     localStorage.removeItem(STAFF_KEY);
     setStaff(null);
+    setSignedOutReason(reason ?? null);
   }, []);
 
   const can = useCallback(
@@ -77,7 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ staff, ready, login, logout, can, refresh }}>
+    <AuthContext.Provider
+      value={{ staff, ready, login, logout, can, refresh, signedOutReason }}
+    >
       {children}
     </AuthContext.Provider>
   );

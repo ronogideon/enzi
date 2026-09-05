@@ -12,6 +12,7 @@ import {
   activePaymentProvider,
 } from "./settings.service";
 import { testKopokopoConnection, resetKopokopoToken } from "../payments/kopokopo.service";
+import { talkSasaBalance } from "../sms/talksasa.service";
 
 export const settingsRouter = Router();
 
@@ -146,36 +147,21 @@ settingsRouter.get(
   })
 );
 
-/** Same idea for Africa's Talking: check the key by reading the balance. */
+/** Verify the Talk Sasa token by reading the account balance. */
 settingsRouter.post(
   "/test/sms",
   requireRole("SUPERADMIN", "ADMIN"),
   wrap(async (_req, res) => {
     const cfg = await smsConfig();
-    if (!cfg.apiKey || !cfg.username)
-      return res.status(400).json({ ok: false, error: "Missing username or API key" });
+    const result = await talkSasaBalance();
 
-    const host =
-      cfg.username === "sandbox"
-        ? "https://api.sandbox.africastalking.com"
-        : "https://api.africastalking.com";
-    try {
-      const { data } = await axios.get(`${host}/version1/user`, {
-        params: { username: cfg.username },
-        headers: { apiKey: cfg.apiKey, Accept: "application/json" },
-        timeout: 15000,
-      });
-      res.json({
-        ok: true,
-        message: `Connected as ${cfg.username}. Balance: ${
-          data?.UserData?.balance ?? "unknown"
-        }`,
-      });
-    } catch (e: any) {
-      res.status(400).json({
-        ok: false,
-        error: e?.response?.data?.message ?? e?.message ?? "Could not reach Africa's Talking",
-      });
-    }
+    if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+
+    // Report the sender ID back: an unregistered one is the commonest reason
+    // messages disappear without any error at all.
+    res.json({
+      ok: true,
+      message: `Connected to Talk Sasa. Balance: ${result.balance}. Sending as "${cfg.senderId}" — make sure that sender ID is registered with Talk Sasa, or messages will silently fail to deliver.`,
+    });
   })
 );

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { hashPassword, verifyPassword } from "../../lib/password";
-import { signToken } from "../../lib/jwt";
+import { signToken, secondsUntilExpiry } from "../../lib/jwt";
 import { HttpError } from "../../middleware/error";
 import { requireCustomer } from "../../middleware/auth";
 import { normalizePhone, isValidKePhone } from "../../lib/phone";
@@ -43,6 +43,9 @@ authRouter.post(
     const token = signToken({ sub: staff.id, role: staff.role, kind: "staff" });
     res.json({
       token,
+      // The client uses this to warn before it expires rather than dropping
+      // someone mid-task with a silent 401.
+      expiresIn: secondsUntilExpiry(token),
       staff: {
         id: staff.id,
         name: staff.name,

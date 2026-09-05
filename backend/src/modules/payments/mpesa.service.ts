@@ -67,9 +67,6 @@ export async function initiateStkPush(params: {
 }): Promise<StkResult> {
   const cfg = await mpesaConfig();
 
-  if (!cfg.enabled)
-    throw new HttpError(503, "M-Pesa payments are switched off in Settings → Payments.");
-
   const missing = (["consumerKey", "consumerSecret", "shortcode", "passkey"] as const).filter(
     (k) => !cfg[k]
   );

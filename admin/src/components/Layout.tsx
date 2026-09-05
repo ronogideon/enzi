@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { useIdleTimeout, IdleWarning } from "@/lib/session";
 import { Icon, type IconName } from "@/components/Icons";
 import type { Role } from "@/lib/types";
 
@@ -77,6 +78,20 @@ export function Layout() {
     logout();
     navigate("/login");
   }
+
+  /**
+   * The admin is often left open on a shared computer at the counter, where it
+   * can read customer contact details and change payment credentials. Sign out
+   * after 30 minutes idle, warning at two minutes so nobody loses a half-typed
+   * product.
+   */
+  const { warningMsLeft, stayActive } = useIdleTimeout({
+    enabled: !!staff,
+    onTimeout: useCallback(() => {
+      logout("idle");
+      navigate("/login");
+    }, [logout, navigate]),
+  });
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
@@ -204,6 +219,14 @@ export function Layout() {
         <main className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-8 sm:py-8 lg:pb-8">
           <Outlet />
         </main>
+
+        {warningMsLeft !== null && (
+          <IdleWarning
+            msLeft={warningMsLeft}
+            onStay={stayActive}
+            onSignOut={handleLogout}
+          />
+        )}
 
         {/* Thumb-reachable bar for the handful of screens used on the floor */}
         <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-ink-line bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">

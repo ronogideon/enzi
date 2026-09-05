@@ -94,9 +94,6 @@ export async function initiateKopokopoStk(params: {
 }): Promise<KopokopoStkResult> {
   const cfg = await kopokopoConfig();
 
-  if (!cfg.enabled)
-    throw new HttpError(503, "Kopo Kopo is switched off in Settings → Payments.");
-
   const missing = (["clientId", "clientSecret", "tillNumber"] as const).filter((k) => !cfg[k]);
   if (missing.length)
     throw new HttpError(

@@ -116,13 +116,23 @@ const SMS: Field[] = [
       { value: "false", label: "Off" },
     ],
   },
-  { key: "sms.username", label: "Africa's Talking username", placeholder: "enzipackaging" },
-  { key: "sms.apiKey", label: "API key", type: "password" },
+  {
+    key: "sms.apiKey",
+    label: "API token",
+    type: "password",
+    hint: "From your Talk Sasa dashboard. Stored encrypted.",
+  },
   {
     key: "sms.senderId",
     label: "Sender ID",
     placeholder: "ENZI",
-    hint: "The name customers see. Must be registered with Africa's Talking first.",
+    hint: "The name customers see. It must be registered with Talk Sasa — an unregistered sender ID is the commonest reason messages vanish without any error.",
+  },
+  {
+    key: "sms.baseUrl",
+    label: "API base URL",
+    placeholder: "https://bulksms.talksasa.com/api/v3",
+    hint: "Only change this if Talk Sasa tell you to.",
   },
 ];
 
@@ -188,8 +198,8 @@ export default function Settings() {
         />
       ) : (
         <SettingsForm
-          title="Africa's Talking (SMS)"
-          description="Used for order notifications and marketing campaigns."
+          title="Talk Sasa (SMS)"
+          description="Used for order notifications and marketing campaigns. Test the connection after saving — it reads your credit balance back."
           fields={SMS}
           settings={settings.data!}
           onSaved={settings.reload}

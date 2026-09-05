@@ -50,7 +50,7 @@ export const SETTING_DEFAULTS: Record<string, () => string> = {
   "payments.provider": () => "mpesa",
 
   // Kopo Kopo
-  "kopokopo.enabled": () => "false",
+  "kopokopo.enabled": () => "true",
   "kopokopo.env": () => process.env.KOPOKOPO_ENV ?? "sandbox",
   "kopokopo.clientId": () => process.env.KOPOKOPO_CLIENT_ID ?? "",
   "kopokopo.clientSecret": () => process.env.KOPOKOPO_CLIENT_SECRET ?? "",
@@ -58,11 +58,12 @@ export const SETTING_DEFAULTS: Record<string, () => string> = {
   "kopokopo.tillNumber": () => process.env.KOPOKOPO_TILL_NUMBER ?? "",
   "kopokopo.callbackUrl": () => process.env.KOPOKOPO_CALLBACK_URL ?? "",
 
-  // Africa's Talking SMS
+  // SMS — Talk Sasa (bulk SMS). "sms.apiKey" holds the bearer token.
   "sms.enabled": () => "true",
-  "sms.username": () => env.at.username,
-  "sms.apiKey": () => env.at.apiKey,
-  "sms.senderId": () => env.at.senderId,
+  "sms.apiKey": () => process.env.TALKSASA_API_TOKEN ?? env.at.apiKey,
+  "sms.senderId": () => process.env.TALKSASA_SENDER_ID ?? env.at.senderId,
+  "sms.baseUrl": () =>
+    process.env.TALKSASA_BASE_URL ?? "https://bulksms.talksasa.com/api/v3",
 };
 
 let cache: Map<string, string> | null = null;
@@ -245,10 +246,13 @@ export async function activePaymentProvider(): Promise<"mpesa" | "kopokopo" | "n
   const chosen = (await getSetting("payments.provider")).toLowerCase();
 
   const [mpesa, kopokopo] = await Promise.all([mpesaConfig(), kopokopoConfig()]);
-  const mpesaReady =
-    mpesa.enabled && !!mpesa.consumerKey && !!mpesa.consumerSecret && !!mpesa.shortcode;
+
+  // "Ready" means the credentials are present. Selecting a provider in the
+  // dashboard IS the act of enabling it — an extra on/off flag alongside the
+  // selector was a second switch that could silently veto the first.
+  const mpesaReady = !!mpesa.consumerKey && !!mpesa.consumerSecret && !!mpesa.shortcode;
   const kopokopoReady =
-    kopokopo.enabled && !!kopokopo.clientId && !!kopokopo.clientSecret && !!kopokopo.tillNumber;
+    !!kopokopo.clientId && !!kopokopo.clientSecret && !!kopokopo.tillNumber;
 
   if (chosen === "kopokopo" && kopokopoReady) return "kopokopo";
   if (chosen === "mpesa" && mpesaReady) return "mpesa";
@@ -259,13 +263,13 @@ export async function activePaymentProvider(): Promise<"mpesa" | "kopokopo" | "n
   return "none";
 }
 
-/** Live Africa's Talking credentials for the SMS service. */
+/** Live Talk Sasa credentials for the SMS service. */
 export async function smsConfig() {
-  const s = await getSettings(["sms.username", "sms.apiKey", "sms.senderId"]);
+  const s = await getSettings(["sms.apiKey", "sms.senderId", "sms.baseUrl"]);
   return {
-    username: s["sms.username"],
     apiKey: s["sms.apiKey"],
     senderId: s["sms.senderId"] || "ENZI",
+    baseUrl: s["sms.baseUrl"] || "https://bulksms.talksasa.com/api/v3",
     enabled: await getBool("sms.enabled", true),
   };
 }

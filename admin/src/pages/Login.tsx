@@ -20,7 +20,7 @@ type Health = {
  * instead of needing a redeploy to find out what was wrong.
  */
 export default function Login() {
-  const { login } = useAuth();
+  const { login, signedOutReason } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -169,6 +169,14 @@ export default function Login() {
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {signedOutReason && !error && (
+          <div className="mb-4 rounded-xl border border-ink-line bg-ink-800/60 px-4 py-3 text-sm text-muted">
+            {signedOutReason === "idle"
+              ? "You were signed out after 30 minutes of inactivity. Admin sessions end automatically to keep customer and payment details safe."
+              : "Your session expired. Admin sessions last 8 hours."}
           </div>
         )}
 

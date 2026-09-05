@@ -1,20 +1,6 @@
-import axios from "axios";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { normalizePhone } from "../../lib/phone";
-import { smsConfig } from "../settings/settings.service";
-
-// Africa's Talking messaging endpoint. Sandbox uses the "sandbox" username
-// and a separate host. We hit the REST API directly (form-encoded) rather
-// than pulling in the SDK, which drags in vulnerable transitive deps.
-// Credentials come from the settings service (database first, env second) so
-// they are editable from the admin dashboard.
-const atUrl = (username: string) =>
-  `${
-    username === "sandbox"
-      ? "https://api.sandbox.africastalking.com"
-      : "https://api.africastalking.com"
-  }/version1/messaging`;
+import { sendViaTalkSasa } from "./talksasa.service";
 
 export interface Segment {
   tags?: string[];
@@ -38,38 +24,18 @@ export async function resolveSegment(segment: Segment) {
   return prisma.customer.findMany({ where });
 }
 
-/** Send an SMS to one or more numbers via the AT REST API. */
+/**
+ * Send an SMS to one or more numbers.
+ *
+ * Delegates to Talk Sasa. Kept as a thin wrapper so campaigns, order
+ * notifications and one-off sends all go through a single call site — swapping
+ * providers again is one file, not a search across the codebase.
+ */
 export async function sendSms(to: string | string[], body: string) {
-  const recipients = (Array.isArray(to) ? to : [to])
-    .map(normalizePhone)
-    .join(",");
-
-  const cfg = await smsConfig();
-  if (!cfg.enabled) {
-    console.warn("[sms] SMS is switched off in settings — skipping", recipients);
-    return { skipped: true, reason: "SMS is switched off in Settings → SMS" };
-  }
-  if (!cfg.apiKey || !cfg.username) {
-    console.warn("[sms] Africa's Talking not configured — skipping", recipients);
-    return { skipped: true, reason: "Africa's Talking credentials are not set" };
-  }
-
-  const params = new URLSearchParams({
-    username: cfg.username,
-    to: recipients,
-    message: body,
-  });
-  if (cfg.senderId) params.set("from", cfg.senderId);
-
-  const { data } = await axios.post(atUrl(cfg.username), params.toString(), {
-    headers: {
-      apiKey: cfg.apiKey,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    timeout: 30000,
-  });
-  return data;
+  const result = await sendViaTalkSasa(to, body);
+  if (!result.ok && !result.skipped)
+    console.error("[sms] send failed:", result.reason);
+  return result;
 }
 
 /**

@@ -27,6 +27,27 @@ function prismaMessage(err: any): { status: number; message: string } | null {
     case "P1001":
     case "P1002":
       return { status: 503, message: "Database unreachable — check DATABASE_URL" };
+
+    // The schema is behind the code. This happens after deploying a release
+    // that adds a table or column without running the migration, and the raw
+    // code tells the person staring at it nothing actionable.
+    case "P2021":
+      return {
+        status: 503,
+        message:
+          `The database is missing a table this feature needs${
+            err.meta?.table ? ` (${err.meta.table})` : ""
+          }. Run "npm run db:push" on the backend to bring the schema up to date.`,
+      };
+    case "P2022":
+      return {
+        status: 503,
+        message:
+          `The database is missing a column this feature needs${
+            err.meta?.column ? ` (${err.meta.column})` : ""
+          }. Run "npm run db:push" on the backend to bring the schema up to date.`,
+      };
+
     default:
       return { status: 400, message: `Database error (${err.code})` };
   }

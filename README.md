@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.2.0 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.2.1 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -292,6 +292,53 @@ one, so it survives Railway's production prune).
 | `stats` | Dashboard overview, revenue series, top products |
 | `settings` | Business config + payment/SMS credentials, connection tests |
 | `categories`, `delivery-methods`, `promotions`, `reviews`, `blog`, `faqs` | Content |
+
+---
+
+## Sessions
+
+Lifetimes differ by who holds the token, because the cost of a stolen one
+differs enormously.
+
+| | Lifetime | Idle sign-out |
+|---|---|---|
+| **Staff / admin** | 8 hours | 30 minutes |
+| **Customer** | 90 days | none |
+
+An admin token can read every customer's phone number, change payment
+credentials and issue refunds — and the dashboard is routinely left open on a
+shared computer at the shop counter. So the token is short-lived *and* the app
+signs out on inactivity, with a warning at two minutes so nobody loses a
+half-typed product. The login page then says why they were signed out rather
+than appearing to have forgotten them.
+
+A stolen customer token, by contrast, gets someone that customer's own order
+history and the ability to place an order that still needs their M-Pesa PIN on
+their own phone to pay. Making shoppers log in repeatedly costs real sales and
+buys almost nothing.
+
+Both are overridable via `STAFF_SESSION_TTL` and `CUSTOMER_SESSION_TTL`, kept
+separate so raising the customer value can't silently extend admin sessions too.
+
+---
+
+## SMS: Talk Sasa
+
+SMS goes through Talk Sasa's v3 API (JSON + bearer token). The API token is
+stored encrypted with the payment credentials, and the base URL is a setting
+rather than a constant — bulk SMS resellers move endpoints more often than
+you'd like, and a hardcoded host means a redeploy to fix a delivery outage.
+
+`sendSms()` remains the single call site for order notifications, campaigns and
+one-off sends, so swapping providers again is one file rather than a search
+across the codebase.
+
+**Register your sender ID with Talk Sasa.** An unregistered sender is the
+commonest reason messages disappear with no error at all, so the connection test
+reads your credit balance back *and* reports the configured sender ID.
+
+The old `AT_*` environment variables are still read as a fallback for the token
+and sender ID, so an existing deployment keeps sending until Talk Sasa is set up.
 
 ---
 

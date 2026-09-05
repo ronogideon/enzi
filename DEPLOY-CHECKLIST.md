@@ -1,103 +1,94 @@
-# Deploy checklist — Enzi v0.2.0
-
-Schema change again (delivery zones, category descriptions), so push it.
+# Deploy checklist — Enzi v0.2.1
 
 ---
 
-## 1. Backend: redeploy, then push the schema
+## First: that P2021 error
+
+**`P2021` means "this table doesn't exist in the database."** The code was
+deployed but the schema wasn't updated, so the API is asking for the
+`DeliveryZone` table that v0.2.0 added and Postgres has never heard of it.
+
+Fix, in the backend's Railway shell:
 
 ```bash
 npm run db:push
 ```
 
-Adds the `DeliveryZone` table, `Order.deliveryZoneId` and
-`Category.description`. All additive — existing methods, orders and categories
-are untouched.
+That's the whole fix, and it clears every page showing it. From this release the
+error message says so directly instead of showing you a code.
 
-## 2. Redeploy admin and storefront
+The same applies to `P2022` (a missing *column*) — same cause, same fix.
 
-No new Railway variables required.
-
----
-
-## 3. Your API keys get encrypted automatically
-
-Payment credentials were stored as plain text. They're now encrypted with
-AES-256-GCM before they reach the database, and a startup pass encrypts anything
-already saved. You'll see this in the backend log:
-
-```
-[enzi] Encrypted 4 stored credential(s) at rest.
-```
-
-Nothing to do — no re-entering keys.
-
-One thing to know: the encryption key is derived from `JWT_SECRET` unless you set
-`SETTINGS_KEY`. **If you ever change `JWT_SECRET`, the saved payment keys stop
-decrypting** and read as unset — the gateway refuses to charge rather than
-sending garbage to Safaricom, and you'd re-enter them in Settings. To decouple
-the two, set `SETTINGS_KEY` to its own random value now, before you have reason
-to rotate anything.
+**This is the step to run after any release that changes the schema.** If a page
+that worked yesterday starts failing right after a deploy, this is the first
+thing to check.
 
 ---
 
-## 4. Create your categories
+## Why you only saw Daraja
 
-**Admin → Categories** (under Shop in the sidebar). Add the groups customers
-browse by — Mailers, Boxes, Tape, Ribbons. Reorder with the arrows; that's the
-order they appear in the shop menu.
+Two reasons, one of them a real bug:
 
-You can also create one without leaving the product form: the category dropdown
-now has **+ New category…** at the bottom, which creates and selects it inline.
+1. In v0.1.9 Kopo Kopo was a separate tab. In v0.2.0 both are merged into one
+   **Payments** tab where you pick a provider. If you hadn't deployed v0.2.0
+   yet, you were looking at the older layout.
+2. **The bug:** `kopokopo.enabled` defaulted to `false`, and the merged UI
+   removed the toggle that set it. So even selecting Kopo Kopo would have left
+   checkout falling back to M-Pesa, silently. Selecting a provider is now what
+   enables it — there's no second hidden switch that can veto your choice.
 
-Deleting a category leaves its products in the shop, just uncategorised. The
-confirmation tells you how many are affected first.
+After deploying, **Settings → Payments** shows both as radio options with
+"live" / "configured" / "not set up" badges.
 
 ---
 
-## 5. Set up delivery zones
+## Deploy steps
 
-**Admin → Delivery.** Each method other than store pickup can now have priced
-areas. Open a method and use **Add area**:
+1. **Backend** — redeploy, then `npm run db:push`.
+2. **Admin and storefront** — redeploy. No new Railway variables needed.
 
-| Field | Example |
+---
+
+## Set up Talk Sasa
+
+**Settings → SMS.** Africa's Talking is replaced by Talk Sasa.
+
+| Field | Value |
 |---|---|
-| Area name | Nairobi CBD |
-| Note | Same day, delivered by 6pm |
-| Delivery cost | 200 |
-| Free over | 5000 (optional) |
+| API token | From your Talk Sasa dashboard |
+| Sender ID | e.g. `ENZI` |
+| API base URL | `https://bulksms.talksasa.com/api/v3` (leave as-is) |
 
-Once a method has areas, customers **must** pick one at checkout, and the area's
-price replaces the method's flat fee. A method with no areas keeps charging its
-flat cost exactly as it does now — so nothing breaks until you add zones.
+Hit **Test SMS connection** — it reads your credit balance back.
 
-Store pickup can't have zones; the customer comes to you.
+**Register the sender ID with Talk Sasa first.** An unregistered sender is the
+commonest reason messages silently never arrive, with no error anywhere.
 
----
-
-## 6. Payments is now one tab
-
-**Admin → Settings → Payments.** M-Pesa and Kopo Kopo are combined, because only
-one takes money at a time. The flow is:
-
-1. Select the provider.
-2. Enter its credentials.
-3. **Test the connection.**
-4. **Make it live.**
-
-The button to switch stays disabled until the required credentials are filled in,
-and if the one you pick isn't fully configured checkout falls back to whichever
-is — you can't take the shop offline mid-switch.
-
-The Settings tabs now have icons and sit on a single divider line.
+Your old `AT_*` Railway variables are still read as a fallback, so nothing stops
+sending in the meantime. You can delete them once Talk Sasa is saved and tested.
 
 ---
 
-## Worth checking after deploy
+## Sessions are now split
 
-- [ ] Backend log shows the credentials were encrypted.
-- [ ] **Settings → Payments → Test connection** still passes on your live gateway.
-- [ ] Create two or three categories, assign a product to one, and confirm it
-      appears under that heading in the shop.
-- [ ] Add one delivery zone, then place a test order and confirm the fee that
-      appears at checkout matches the order total in the admin.
+| | Lifetime | Idle sign-out |
+|---|---|---|
+| Admin / staff | 8 hours | 30 minutes |
+| Customer | 90 days | none |
+
+The admin warns two minutes before signing you out so you don't lose a
+half-typed product, and the login page tells you why it happened.
+
+Override with `STAFF_SESSION_TTL` / `CUSTOMER_SESSION_TTL` if 8 hours doesn't
+match how your shop works — but leave the idle timeout alone if the dashboard is
+ever open on a shared counter machine.
+
+---
+
+## Worth checking
+
+- [ ] Delivery, Categories and any other failing page load after `db:push`.
+- [ ] **Settings → Payments** shows Kopo Kopo alongside M-Pesa.
+- [ ] **Settings → SMS → Test connection** returns your Talk Sasa balance.
+- [ ] Send one test SMS to your own number and confirm it arrives from the
+      right sender ID.
