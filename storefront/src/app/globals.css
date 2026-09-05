@@ -100,6 +100,26 @@
     @apply btn border border-ink-line text-cloud hover:bg-ink-hover;
   }
 
+  /* Rendered Markdown from blog posts and FAQ answers. The renderer emits its
+     own utilities; these style the bare tags and set the reading measure. */
+  .prose-enzi { @apply text-muted; }
+  .prose-enzi > *:first-child { @apply mt-0; }
+  .prose-enzi p { @apply mb-5 leading-relaxed; }
+  .prose-enzi h2, .prose-enzi h3, .prose-enzi h4 {
+    @apply font-display font-extrabold tracking-tight text-white;
+  }
+  .prose-enzi a {
+    @apply text-white underline decoration-white/40 underline-offset-4 transition-colors;
+  }
+  .prose-enzi a:hover { @apply decoration-white; }
+  .prose-enzi strong { @apply font-semibold text-white; }
+  .prose-enzi img { @apply my-6 w-full rounded-xl border border-ink-line; }
+  .prose-enzi ul { @apply mb-5 list-disc space-y-2 pl-6; }
+  .prose-enzi ol { @apply mb-5 list-decimal space-y-2 pl-6; }
+  .prose-enzi blockquote { @apply my-6 border-l-2 border-white/30 pl-5 italic text-cloud; }
+  .prose-enzi code { @apply rounded bg-white/10 px-1.5 py-0.5 text-[0.9em]; }
+  .prose-enzi hr { @apply my-10 border-ink-line; }
+
   .field {
     @apply w-full rounded-xl border border-ink-line bg-ink-800 px-4 py-3
       text-cloud placeholder:text-faint

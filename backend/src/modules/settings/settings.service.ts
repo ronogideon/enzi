@@ -19,6 +19,8 @@ export const SECRET_KEYS = new Set([
   "mpesa.consumerKey",
   "mpesa.consumerSecret",
   "mpesa.passkey",
+  "kopokopo.clientSecret",
+  "kopokopo.apiKey",
   "sms.apiKey",
 ]);
 
@@ -41,6 +43,19 @@ export const SETTING_DEFAULTS: Record<string, () => string> = {
   "mpesa.passkey": () => env.mpesa.passkey,
   "mpesa.callbackUrl": () => env.mpesa.callbackUrl,
   "mpesa.transactionType": () => "CustomerPayBillOnline",
+
+  // Which gateway takes online payments. "mpesa" talks to Daraja directly;
+  // "kopokopo" routes through Kopo Kopo's till.
+  "payments.provider": () => "mpesa",
+
+  // Kopo Kopo
+  "kopokopo.enabled": () => "false",
+  "kopokopo.env": () => process.env.KOPOKOPO_ENV ?? "sandbox",
+  "kopokopo.clientId": () => process.env.KOPOKOPO_CLIENT_ID ?? "",
+  "kopokopo.clientSecret": () => process.env.KOPOKOPO_CLIENT_SECRET ?? "",
+  "kopokopo.apiKey": () => process.env.KOPOKOPO_API_KEY ?? "",
+  "kopokopo.tillNumber": () => process.env.KOPOKOPO_TILL_NUMBER ?? "",
+  "kopokopo.callbackUrl": () => process.env.KOPOKOPO_CALLBACK_URL ?? "",
 
   // Africa's Talking SMS
   "sms.enabled": () => "true",
@@ -166,6 +181,50 @@ export async function mpesaConfig() {
         : "CustomerPayBillOnline",
     enabled: await getBool("mpesa.enabled", true),
   };
+}
+
+/** Live Kopo Kopo credentials for the payment service. */
+export async function kopokopoConfig() {
+  const s = await getSettings([
+    "kopokopo.env",
+    "kopokopo.clientId",
+    "kopokopo.clientSecret",
+    "kopokopo.apiKey",
+    "kopokopo.tillNumber",
+    "kopokopo.callbackUrl",
+  ]);
+  return {
+    env: s["kopokopo.env"] === "production" ? "production" : "sandbox",
+    clientId: s["kopokopo.clientId"],
+    clientSecret: s["kopokopo.clientSecret"],
+    apiKey: s["kopokopo.apiKey"],
+    tillNumber: s["kopokopo.tillNumber"],
+    callbackUrl: s["kopokopo.callbackUrl"],
+    enabled: await getBool("kopokopo.enabled", false),
+  };
+}
+
+/**
+ * Which gateway online payments go through. Falls back to whichever is
+ * actually configured, so a half-finished switch can't leave checkout with no
+ * working payment method at all.
+ */
+export async function activePaymentProvider(): Promise<"mpesa" | "kopokopo" | "none"> {
+  const chosen = (await getSetting("payments.provider")).toLowerCase();
+
+  const [mpesa, kopokopo] = await Promise.all([mpesaConfig(), kopokopoConfig()]);
+  const mpesaReady =
+    mpesa.enabled && !!mpesa.consumerKey && !!mpesa.consumerSecret && !!mpesa.shortcode;
+  const kopokopoReady =
+    kopokopo.enabled && !!kopokopo.clientId && !!kopokopo.clientSecret && !!kopokopo.tillNumber;
+
+  if (chosen === "kopokopo" && kopokopoReady) return "kopokopo";
+  if (chosen === "mpesa" && mpesaReady) return "mpesa";
+
+  // Chosen provider isn't usable — fall back to the other one if it is.
+  if (kopokopoReady) return "kopokopo";
+  if (mpesaReady) return "mpesa";
+  return "none";
 }
 
 /** Live Africa's Talking credentials for the SMS service. */

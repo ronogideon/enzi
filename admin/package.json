@@ -1,6 +1,6 @@
 {
   "name": "enzi-admin",
-  "version": "0.5.0",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "scripts": {

@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth";
 import type { SettingsMap } from "@/lib/types";
 import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
 
-type TabKey = "business" | "payments" | "sms" | "account";
+type TabKey = "business" | "payments" | "kopokopo" | "sms" | "account";
 
 interface Field {
   key: string;
@@ -17,7 +17,8 @@ interface Field {
 
 const TABS: { key: TabKey; label: string; adminOnly?: boolean }[] = [
   { key: "business", label: "Business" },
-  { key: "payments", label: "Payments", adminOnly: true },
+  { key: "payments", label: "M-Pesa" },
+  { key: "kopokopo", label: "Kopo Kopo", adminOnly: true },
   { key: "sms", label: "SMS", adminOnly: true },
   { key: "account", label: "My account" },
 ];
@@ -33,6 +34,61 @@ const BUSINESS: Field[] = [
     label: "Free delivery over (Ksh)",
     placeholder: "5000",
     hint: "Leave blank to charge delivery on every order.",
+  },
+];
+
+/**
+ * Which gateway takes online payments. Both end in the same customer
+ * experience — an STK prompt on the phone — so this is purely about who you
+ * hold the merchant relationship with.
+ */
+const GATEWAY: Field[] = [
+  {
+    key: "payments.provider",
+    label: "Payment gateway",
+    type: "select",
+    options: [
+      { value: "mpesa", label: "M-Pesa (Daraja) — direct from Safaricom" },
+      { value: "kopokopo", label: "Kopo Kopo — settles to your K2 till" },
+    ],
+    hint: "If the one you pick isn't fully configured, checkout falls back to whichever is — so a half-finished switch can't take the shop offline.",
+  },
+];
+
+const KOPOKOPO: Field[] = [
+  {
+    key: "kopokopo.enabled",
+    label: "Kopo Kopo payments",
+    type: "select",
+    options: [
+      { value: "false", label: "Off" },
+      { value: "true", label: "On" },
+    ],
+  },
+  {
+    key: "kopokopo.env",
+    label: "Environment",
+    type: "select",
+    options: [
+      { value: "sandbox", label: "Sandbox (testing)" },
+      { value: "production", label: "Production (real money)" },
+    ],
+    hint: "Switch to production only once a sandbox payment has gone through end to end.",
+  },
+  { key: "kopokopo.tillNumber", label: "Till number", placeholder: "K2 till, e.g. 112233" },
+  { key: "kopokopo.clientId", label: "Client ID" },
+  { key: "kopokopo.clientSecret", label: "Client secret", type: "password" },
+  {
+    key: "kopokopo.apiKey",
+    label: "API key (webhook signing)",
+    type: "password",
+    hint: "Used to verify that incoming payment confirmations really came from Kopo Kopo. Without it, anyone who learns your callback URL could mark orders paid.",
+  },
+  {
+    key: "kopokopo.callbackUrl",
+    label: "Callback URL",
+    placeholder: "https://api.enzipackaging.com/api/payments/kopokopo/callback",
+    hint: "Where Kopo Kopo confirms payment. Register this same URL in your Kopo Kopo dashboard — payments never confirm without it.",
   },
 ];
 

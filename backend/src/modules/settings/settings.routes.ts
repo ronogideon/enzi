@@ -9,7 +9,9 @@ import {
   SETTING_DEFAULTS,
   mpesaConfig,
   smsConfig,
+  activePaymentProvider,
 } from "./settings.service";
+import { testKopokopoConnection, resetKopokopoToken } from "../payments/kopokopo.service";
 
 export const settingsRouter = Router();
 
@@ -51,6 +53,7 @@ settingsRouter.put(
     if (asString.startsWith("••••")) throw new HttpError(400, "Masked value rejected");
 
     await setSetting(key, asString);
+    if (key.startsWith("kopokopo.")) resetKopokopoToken();
     res.json({ ok: true, key });
   })
 );
@@ -70,6 +73,7 @@ settingsRouter.put(
       const asString = raw === null || raw === undefined ? "" : String(raw).trim();
       if (asString.startsWith("••••")) continue; // unchanged secret — leave it alone
       await setSetting(key, asString);
+      if (key.startsWith("kopokopo.")) resetKopokopoToken();
       saved.push(key);
     }
     res.json({ ok: true, saved });
@@ -119,6 +123,26 @@ settingsRouter.post(
           "Could not reach Daraja",
       });
     }
+  })
+);
+
+/** Verify the saved Kopo Kopo credentials by fetching an OAuth token. */
+settingsRouter.post(
+  "/test/kopokopo",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (_req, res) => {
+    const result = await testKopokopoConnection();
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  })
+);
+
+/** Which gateway checkout will actually use, and why. */
+settingsRouter.get(
+  "/payment-provider",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json({ provider: await activePaymentProvider() });
   })
 );
 

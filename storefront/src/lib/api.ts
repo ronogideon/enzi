@@ -258,11 +258,12 @@ export const api = {
     post<PricedCart>("/orders/price", { lines }),
   placeOrder: (payload: unknown) =>
     post<{ order: Order; requiresPayment: boolean }>("/orders", payload),
+  /** Gateway-agnostic: the server picks M-Pesa or Kopo Kopo from settings. */
   initiateStk: (orderId: string, phone: string) =>
-    post<{ checkoutRequestId: string; customerMessage: string }>("/payments/mpesa/stk", {
-      orderId,
-      phone,
-    }),
+    post<{ provider: string; checkoutRequestId: string; customerMessage: string }>(
+      "/payments/stk",
+      { orderId, phone }
+    ),
   paymentStatus: (checkoutRequestId: string) =>
     fetch(`${apiBase()}/payments/status/${checkoutRequestId}`).then((r) => r.json()),
   submitReview: (body: { authorName: string; rating: number; body: string }) =>

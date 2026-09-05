@@ -1,72 +1,88 @@
-# Deploy checklist — Enzi v0.5.0
+# Deploy checklist — Enzi v0.1.9
 
-No new Railway variables. The schema is unchanged, so no `db:push` needed
-either — just redeploy all three services.
-
----
-
-## 1. Redeploy backend, storefront, admin
-
-The pricing change lives in the backend, so deploy it first (or together).
-Nothing else to configure.
-
-## 2. Check the toggle
-
-Admin → Products. The white knob should now sit **inside** the green pill and
-slide to the left end when off. It was escaping the track because it had no
-horizontal anchor and fell back to the button's centred text position.
-
-## 3. Check wholesale on a product
-
-Open any product with a wholesale price set:
-
-- Below the threshold: retail price, and a line reading
-  **"Wholesale minimum: ## pcs — save Ksh X each"**.
-- Raise the quantity past it: the price changes in place, the line turns green
-  and reads **"applied"**, and a toast fires with confetti —
-  **"Wholesale discount applied"**, 2 seconds.
-- The cart then shows total wholesale savings.
-
-There is no tier selector anywhere any more. It's gone from the cart and from
-checkout, because the quantity decides it.
-
-If a product has no wholesale price, none of this shows. Set one in
-**Products → Edit → Wholesale price** and **Wholesale minimum quantity**.
-
-## 4. Check the admin on your phone
-
-Open `dashboard.enzipackaging.com` (or the Railway URL) on a phone:
-
-- Hamburger top-left opens a slide-in drawer with every section.
-- Bottom bar has Home / Orders / Products / Stock.
-- Products, Orders, Staff and Customers are cards, not tables.
-- Tapping "Add product" opens a bottom sheet you can scroll.
-
-## 5. Check the product page on desktop
-
-The photo is now height-capped at 58vh, so the price and the add-to-cart button
-sit above the fold instead of below a full-width square. Thumbnails scroll
-horizontally under it and switch the main image; arrow keys work too.
+There **is** a schema change this time (two payment columns), so push it.
 
 ---
 
-## What to look at while you're in there
+## 1. Backend: redeploy, then push the schema
 
-- [ ] Set a **wholesale price and minimum** on your real products — the whole
-      feature is invisible until those two fields are filled in.
-- [ ] **Settings → Payments** — confirm the callback URL is
-      `https://api.enzipackaging.com/api/payments/mpesa/callback` and hit
-      **Test M-Pesa connection**.
-- [ ] Place one test order end to end, crossing the wholesale threshold, and
-      confirm the order total in the admin matches what the shop quoted.
+```bash
+npm run db:push
+```
+
+Adds `Payment.providerRef` and `Payment.receiptRef`. Both nullable — existing
+payments and orders are untouched.
+
+## 2. Redeploy storefront and admin
+
+No new Railway variables. Kopo Kopo credentials are entered in the dashboard,
+not in Railway.
 
 ---
 
-## A note on the animations
+## 3. Turn on Kopo Kopo (optional)
 
-Everything added is an entrance or a press response, all under 300ms, and all
-of it collapses to a plain fade under `prefers-reduced-motion`. Nothing loops,
-nothing blocks a tap, and no animation sits between you and an action. If any
-of it feels like too much on your hardware, the whole layer is in
-`storefront/src/app/globals.css` under the "Motion" heading and can be tuned in
-one place.
+M-Pesa keeps working exactly as it does now — skip this section entirely if
+you're happy on Daraja.
+
+**Admin → Settings → Kopo Kopo:**
+
+| Field | Where it comes from |
+|---|---|
+| Till number | Your K2 till |
+| Client ID / Client secret | Kopo Kopo dashboard → API keys |
+| API key | Same page — used to verify webhooks |
+| Callback URL | `https://api.enzipackaging.com/api/payments/kopokopo/callback` |
+
+Then:
+
+1. Set **Kopo Kopo payments** to On, hit **Test Kopo Kopo connection**.
+2. Register that same callback URL in the **Kopo Kopo dashboard** — the shop
+   can't do this for you, and payments never confirm without it.
+3. **Settings → M-Pesa → Gateway** — switch to Kopo Kopo.
+4. Place one sandbox order end to end before flipping Environment to
+   production.
+
+Do set the **API key**. Without it the webhook still works, but nothing verifies
+that a payment confirmation actually came from Kopo Kopo — anyone who learned
+the URL could mark orders paid. The backend logs a warning on every unverified
+call.
+
+If the gateway you select isn't fully configured, checkout falls back to
+whichever one is, so you can't take the shop offline mid-switch.
+
+---
+
+## 4. Write a blog post
+
+**Admin → Blog → New post.** The editor is full-screen with a live preview.
+
+- Toolbar buttons insert formatting — no syntax to learn.
+- **Image** uploads a photo straight into the post (resized in your browser
+  first, so a phone photo doesn't take a minute).
+- **Link** prompts for a URL and wraps whatever you've selected.
+- Leave the summary blank and the opening lines are used automatically.
+- Posts save as drafts until you tick **Published**.
+
+Answers in **Admin → FAQs** take the same formatting, so you can link to a
+product page instead of describing where to find it. Use the up/down arrows to
+set the order customers see.
+
+---
+
+## 5. Have a look at the new navigation
+
+The sidebar is grouped into **Shop / Content / Admin** with icons, and the
+mobile bottom bar now has icons too. Blog and FAQs live under Content.
+
+---
+
+## Worth checking after deploy
+
+- [ ] Write one test post, publish it, and confirm it renders at
+      `enzipackaging.com/blog` with the images and links working.
+- [ ] Add two or three real FAQs — delivery times, minimum orders, payment
+      methods are the ones customers ask.
+- [ ] Confirm **Settings → M-Pesa → Test M-Pesa connection** still passes.
+- [ ] Place one live order to confirm the gateway you've selected is the one
+      that runs.

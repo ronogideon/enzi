@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Category } from "@/lib/types";
 import { useCart } from "@/lib/cart";
 import { useAccount } from "@/lib/account";
+import { Icon } from "@/components/Icons";
 
 const NAV = [
   { label: "Home", href: "/" },
@@ -72,17 +73,22 @@ export function Header({ categories }: { categories: Category[] }) {
           <div className="flex items-center gap-5">
             {ready && (
               customer ? (
-                <Link href="/account" className="hover:text-cloud">
+                <Link href="/account" className="flex items-center gap-1.5 transition-colors hover:text-cloud">
+                  <Icon.User className="h-4 w-4" />
                   {customer.name?.split(" ")[0] ?? "My account"}
                 </Link>
               ) : (
                 <>
-                  <Link href="/account/login" className="hover:text-cloud">Sign in</Link>
+                  <Link href="/account/login" className="flex items-center gap-1.5 transition-colors hover:text-cloud">
+                    <Icon.User className="h-4 w-4" />
+                    Sign in
+                  </Link>
                   <Link href="/account/register" className="hover:text-cloud">Create account</Link>
                 </>
               )
             )}
-            <Link href="/cart" className="flex items-center gap-1.5 hover:text-cloud">
+            <Link href="/cart" className="flex items-center gap-1.5 transition-colors hover:text-cloud">
+              <Icon.Cart className="h-4 w-4" />
               Cart
               {count > 0 && (
                 <span className="grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">

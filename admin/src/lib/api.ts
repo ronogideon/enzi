@@ -1,6 +1,7 @@
 import type {
   Staff, StaffMember, Category, Product, Promotion, DeliveryMethod, Order,
   Customer, StockAudit, SmsCampaign, StatsOverview, SettingsMap, UploadedImage,
+  BlogPost, Faq,
 } from "./types";
 
 declare global {
@@ -332,6 +333,24 @@ export const api = {
       method: "POST",
     }),
 
+  // blog
+  blogPosts: () => req<BlogPost[]>("/blog/admin/all"),
+  blogPost: (id: string) => req<BlogPost>(`/blog/admin/${id}`),
+  createBlogPost: (body: unknown) => req<BlogPost>("/blog", { method: "POST", body }),
+  updateBlogPost: (id: string, body: unknown) =>
+    req<BlogPost>(`/blog/${id}`, { method: "PATCH", body }),
+  deleteBlogPost: (id: string) => req<{ ok: boolean }>(`/blog/${id}`, { method: "DELETE" }),
+
+  // faqs
+  faqsAll: () => req<Faq[]>("/faqs/admin/all"),
+  createFaq: (body: { question: string; answer: string }) =>
+    req<Faq>("/faqs", { method: "POST", body }),
+  updateFaq: (id: string, body: Partial<Faq>) =>
+    req<Faq>(`/faqs/${id}`, { method: "PATCH", body }),
+  reorderFaqs: (ids: string[]) =>
+    req<{ ok: boolean }>("/faqs/reorder", { method: "POST", body: { ids } }),
+  deleteFaq: (id: string) => req<{ ok: boolean }>(`/faqs/${id}`, { method: "DELETE" }),
+
   // settings
   settings: () => req<SettingsMap>("/settings"),
   setSetting: (key: string, value: unknown) =>
@@ -344,4 +363,10 @@ export const api = {
     }),
   testSms: () =>
     req<{ ok: boolean; message?: string }>("/settings/test/sms", { method: "POST" }),
+  testKopokopo: () =>
+    req<{ ok: boolean; message?: string; callbackUrl?: string }>("/settings/test/kopokopo", {
+      method: "POST",
+    }),
+  paymentProvider: () =>
+    req<{ provider: "mpesa" | "kopokopo" | "none" }>("/settings/payment-provider"),
 };

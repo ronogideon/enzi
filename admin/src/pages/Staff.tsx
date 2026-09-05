@@ -5,6 +5,7 @@ import type { Role, StaffMember } from "@/lib/types";
 import {
   PageHeader, Spinner, EmptyState, Modal, Badge, Toggle, useAsync,
 } from "@/components/ui";
+import { Icon } from "@/components/Icons";
 
 /**
  * What each role can actually do, in the words the shop owner would use.
@@ -78,6 +79,7 @@ export default function Staff() {
         subtitle="Logins for the people who work in the shop"
         action={
           <button className="btn-primary" onClick={() => setCreating(true)}>
+            <Icon.Plus className="h-4 w-4" />
             Add staff member
           </button>
         }

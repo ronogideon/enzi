@@ -146,3 +146,25 @@ export interface SettingEntry {
   source: "database" | "environment" | "unset";
 }
 export type SettingsMap = Record<string, SettingEntry>;
+
+export interface BlogPost {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt?: string | null;
+  body: string;
+  coverImage?: string | null;
+  published: boolean;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface Faq {
+  id: string;
+  question: string;
+  answer: string;
+  position: number;
+  active: boolean;
+  createdAt: string;
+}

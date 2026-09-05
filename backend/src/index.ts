@@ -5,7 +5,7 @@ import { ensureAdminAccount } from "./lib/bootstrap";
 const app = createApp();
 
 app.listen(env.port, "0.0.0.0", async () => {
-  console.log(`[enzi] v0.4.1 listening on :${env.port} (${env.nodeEnv})`);
+  console.log(`[enzi] v0.1.9 listening on :${env.port} (${env.nodeEnv})`);
   console.log(
     `[enzi] CORS: ${
       env.corsOrigins.length

@@ -1,22 +1,41 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { Icon, type IconName } from "@/components/Icons";
 import type { Role } from "@/lib/types";
 
-interface NavItem { to: string; label: string; short: string; roles: Role[]; }
+interface NavItem {
+  to: string;
+  label: string;
+  short: string;
+  icon: IconName;
+  roles: Role[];
+  group: "Shop" | "Content" | "Admin";
+}
 
+/**
+ * Grouped so the sidebar reads as three short lists rather than one wall of
+ * twelve links — the eye can find "Blog" under Content without scanning all of
+ * them.
+ */
 const NAV: NavItem[] = [
-  { to: "/", label: "Dashboard", short: "Home", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
-  { to: "/orders", label: "Orders", short: "Orders", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
-  { to: "/products", label: "Products", short: "Products", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
-  { to: "/stock", label: "Stock & Audits", short: "Stock", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
-  { to: "/promotions", label: "Promotions", short: "Promos", roles: ["SUPERADMIN", "ADMIN"] },
-  { to: "/customers", label: "Customers", short: "People", roles: ["SUPERADMIN", "ADMIN", "SUPPORT"] },
-  { to: "/sms", label: "SMS Marketing", short: "SMS", roles: ["SUPERADMIN", "ADMIN"] },
-  { to: "/delivery", label: "Delivery", short: "Delivery", roles: ["SUPERADMIN", "ADMIN"] },
-  { to: "/staff", label: "Staff accounts", short: "Staff", roles: ["SUPERADMIN", "ADMIN"] },
-  { to: "/settings", label: "Settings", short: "Settings", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
+  { to: "/", label: "Dashboard", short: "Home", icon: "Dashboard", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
+  { to: "/orders", label: "Orders", short: "Orders", icon: "Orders", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
+  { to: "/products", label: "Products", short: "Products", icon: "Products", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
+  { to: "/stock", label: "Stock & Audits", short: "Stock", icon: "Stock", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
+  { to: "/customers", label: "Customers", short: "People", icon: "Customers", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "SUPPORT"] },
+
+  { to: "/blog", label: "Blog", short: "Blog", icon: "Blog", group: "Content", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
+  { to: "/faqs", label: "FAQs", short: "FAQs", icon: "Faq", group: "Content", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
+  { to: "/promotions", label: "Promotions", short: "Promos", icon: "Promotions", group: "Content", roles: ["SUPERADMIN", "ADMIN"] },
+  { to: "/sms", label: "SMS Marketing", short: "SMS", icon: "Sms", group: "Content", roles: ["SUPERADMIN", "ADMIN"] },
+
+  { to: "/delivery", label: "Delivery", short: "Delivery", icon: "Delivery", group: "Admin", roles: ["SUPERADMIN", "ADMIN"] },
+  { to: "/staff", label: "Staff accounts", short: "Staff", icon: "Staff", group: "Admin", roles: ["SUPERADMIN", "ADMIN"] },
+  { to: "/settings", label: "Settings", short: "Settings", icon: "Settings", group: "Admin", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
 ];
+
+const GROUPS: NavItem["group"][] = ["Shop", "Content", "Admin"];
 
 /**
  * Admin shell.
@@ -59,9 +78,50 @@ export function Layout() {
   }
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `block rounded-lg px-3 py-2.5 text-sm transition-colors ${
-      isActive ? "bg-ink-hover text-white" : "text-muted hover:bg-ink-hover hover:text-cloud"
+    `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+      isActive
+        ? "bg-ink-hover text-white"
+        : "text-muted hover:bg-ink-hover/60 hover:text-cloud"
     }`;
+
+  /** One nav list, rendered identically in the sidebar and the drawer. */
+  const navList = (
+    <>
+      {GROUPS.map((group) => {
+        const groupItems = items.filter((n) => n.group === group);
+        if (!groupItems.length) return null;
+        return (
+          <div key={group} className="mb-5">
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+              {group}
+            </p>
+            <div className="space-y-0.5">
+              {groupItems.map((n) => {
+                const Glyph = Icon[n.icon];
+                return (
+                  <NavLink key={n.to} to={n.to} end={n.to === "/"} className={navLinkClass}>
+                    {({ isActive }) => (
+                      <>
+                        {/* Active marker on the left edge — a colour change
+                            alone is easy to miss on a dark sidebar. */}
+                        <span
+                          className={`absolute left-0 h-5 w-0.5 rounded-r-full bg-white transition-opacity ${
+                            isActive ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
+                        <Glyph className={isActive ? "h-[18px] w-[18px] text-white" : "h-[18px] w-[18px]"} />
+                        <span className="truncate">{n.label}</span>
+                      </>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
 
   const brand = (
     <div>
@@ -74,7 +134,11 @@ export function Layout() {
     <div className="border-t border-ink-line p-4">
       <p className="truncate text-sm font-medium text-cloud">{staff?.name}</p>
       <p className="text-xs text-faint">{staff?.role}</p>
-      <button onClick={handleLogout} className="mt-3 text-xs text-muted transition-colors hover:text-danger">
+      <button
+        onClick={handleLogout}
+        className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-danger"
+      >
+        <Icon.Logout className="h-4 w-4" />
         Sign out
       </button>
     </div>
@@ -85,13 +149,7 @@ export function Layout() {
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-ink-line bg-ink-800/40 lg:flex">
         <div className="px-6 py-6">{brand}</div>
-        <nav className="flex-1 space-y-1 px-3">
-          {items.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === "/"} className={navLinkClass}>
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+        <nav className="relative flex-1 overflow-y-auto px-3">{navList}</nav>
         {footer}
       </aside>
 
@@ -120,16 +178,10 @@ export function Layout() {
               className="grid h-9 w-9 place-items-center rounded-lg text-muted transition-colors hover:bg-ink-hover hover:text-cloud"
               aria-label="Close menu"
             >
-              ✕
+              <Icon.Close className="h-4 w-4" />
             </button>
           </div>
-          <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-            {items.map((n) => (
-              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={navLinkClass}>
-                {n.label}
-              </NavLink>
-            ))}
-          </nav>
+          <nav className="relative flex-1 overflow-y-auto px-3 pb-4">{navList}</nav>
           {footer}
         </aside>
       </div>
@@ -142,9 +194,7 @@ export function Layout() {
             className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-cloud transition-colors hover:bg-ink-hover active:scale-95"
             aria-label="Open menu"
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
-            </svg>
+            <Icon.Menu className="h-5 w-5" />
           </button>
           <span className="font-display font-extrabold text-white">ENZI ADMIN</span>
         </header>
@@ -156,20 +206,24 @@ export function Layout() {
 
         {/* Thumb-reachable bar for the handful of screens used on the floor */}
         <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-ink-line bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-          {quick.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.to === "/"}
-              className={({ isActive }) =>
-                `py-3 text-center text-xs transition-colors ${
-                  isActive ? "text-white" : "text-muted"
-                }`
-              }
-            >
-              {n.short}
-            </NavLink>
-          ))}
+          {quick.map((n) => {
+            const Glyph = Icon[n.icon];
+            return (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.to === "/"}
+                className={({ isActive }) =>
+                  `flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
+                    isActive ? "text-white" : "text-muted"
+                  }`
+                }
+              >
+                <Glyph className="h-5 w-5" />
+                {n.short}
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
     </div>

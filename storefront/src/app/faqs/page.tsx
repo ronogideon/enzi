@@ -1,4 +1,6 @@
 import { api } from "@/lib/api";
+import { renderMarkdown } from "@/lib/markdown";
+import { Icon } from "@/components/Icons";
 
 export const metadata = { title: "FAQs" };
 
@@ -22,18 +24,17 @@ export default async function FaqsPage() {
           <p className="text-muted">No FAQs available at the moment.</p>
         </div>
       ) : (
-        <div className="mx-auto mt-14 max-w-3xl space-y-3">
+        <div className="stagger mx-auto mt-14 max-w-3xl space-y-3">
           {faqs.map((f) => (
             <details key={f.id} className="card group px-6 py-5">
-              <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-white">
                 {f.question}
-                <span className="text-muted transition-transform group-open:rotate-180">
-                  ⌄
-                </span>
+                <Icon.ChevronDown className="h-4 w-4 shrink-0 text-muted transition-transform duration-200 group-open:rotate-180" />
               </summary>
-              <p className="mt-3 text-sm leading-relaxed text-muted">
-                {f.answer}
-              </p>
+              <div
+                className="prose-enzi mt-3 text-sm"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(f.answer) }}
+              />
             </details>
           ))}
         </div>

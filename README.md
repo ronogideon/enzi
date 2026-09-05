@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.5.0 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.1.9 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -292,6 +292,95 @@ one, so it survives Railway's production prune).
 | `stats` | Dashboard overview, revenue series, top products |
 | `settings` | Business config + payment/SMS credentials, connection tests |
 | `categories`, `delivery-methods`, `promotions`, `reviews`, `blog`, `faqs` | Content |
+
+---
+
+## Payment gateways
+
+Two options, chosen in **Settings → M-Pesa → Gateway**. Customers see the same
+M-PESA prompt either way; the difference is who you hold the merchant
+relationship with.
+
+| | M-Pesa (Daraja) | Kopo Kopo |
+|---|---|---|
+| Settles to | Your own paybill/till | Your Kopo Kopo till |
+| Onboarding | Safaricom developer portal | Kopo Kopo dashboard |
+| Cost | Safaricom's rates | Plus a K2 transaction fee |
+| Reconciliation | Yours to build | K2 dashboard |
+
+**The endpoint is gateway-agnostic.** The storefront posts to `/payments/stk`
+and the server picks the configured provider — the shop never knows or chooses.
+`/payments/mpesa/stk` is kept as an alias so an older deployed storefront keeps
+working through a rollout.
+
+If the selected gateway isn't fully configured, checkout falls back to whichever
+one is. A half-finished switch can't take the shop offline.
+
+### Kopo Kopo specifics
+
+- Credentials live in the database like the M-Pesa keys, so they're editable
+  from the dashboard with no redeploy. Editing them drops the cached OAuth
+  token immediately.
+- **The webhook signature is verified.** Kopo Kopo signs the raw body with
+  HMAC-SHA256 using your API key; the route is mounted with a raw body parser
+  because re-serialising parsed JSON would change byte order and break
+  verification. Without this, anyone who learned the callback URL could mark
+  orders paid. If no API key is set the webhook still works but logs a warning
+  on every call — set the key.
+- Register `https://api.enzipackaging.com/api/payments/kopokopo/callback` in the
+  Kopo Kopo dashboard as well as in Settings.
+- Duplicate webhook deliveries are ignored once a payment is already `PAID`.
+
+`Payment` gained `providerRef` and `receiptRef` so a second gateway doesn't have
+to masquerade as Daraja in the M-Pesa-named columns.
+
+---
+
+## Blog and FAQs
+
+Both are now fully editable from the admin — create, edit, publish, reorder,
+delete.
+
+### The editor writes Markdown, not HTML
+
+That's a deliberate security decision. Storing HTML from an editor means
+anything a staff account pastes ends up in every visitor's browser, so one
+compromised staff login becomes a script injection on the shop. Instead, posts
+are stored as Markdown and rendered by a ~180-line renderer that escapes
+everything first and emits a fixed set of tags. There is no path from stored
+text to arbitrary markup. Link URLs are filtered too — `javascript:` and
+`data:` hrefs are dropped, `http(s)`, `mailto`, `tel` and internal paths pass.
+
+Nobody has to learn the syntax. The toolbar inserts it, and a live preview sits
+beside the text showing exactly what visitors will see. Images upload straight
+from the composer (downscaled in the browser first, same as product photos) and
+land inline. Links are clickable, external ones get `rel="noopener"`.
+
+The editor opens full-screen rather than in a dialog — writing a post in a 500px
+modal is miserable, and this is the one admin task that needs room.
+
+Deleting a post frees any uploaded images it owned that nothing else references.
+
+FAQ answers accept the same Markdown, so a support answer can link to a product
+instead of describing where to find it. Order is set with up/down buttons —
+reliable on touch, where drag-and-drop fights with page scrolling — and saved in
+one atomic call.
+
+---
+
+## Icons
+
+A hand-rolled set (`components/Icons.tsx`), shared between both apps. About
+thirty glyphs, all 24×24 stroke paths on the same grid at the same 1.75 stroke
+width, so none looks heavier than its neighbours. No icon dependency: a package
+would ship a few thousand glyphs to use thirty.
+
+Icons beside text labels are `aria-hidden` — announcing the label twice is worse
+than not announcing the icon. Icon-only controls take a `title`.
+
+The admin sidebar is now grouped into **Shop / Content / Admin** with an active
+marker on the left edge, because a colour change alone is easy to miss on a dark
+sidebar, and twelve flat links is a wall to scan.
 
 ---
 

@@ -371,6 +371,20 @@ reviewsRouter.post(
 
 // -------------------------------------------------------------------- blog
 export const blogRouter = Router();
+
+/** Slugs live in URLs, so they must stay unique across drafts and published. */
+async function uniqueBlogSlug(title: string, excludeId?: string): Promise<string> {
+  const base = slugify(title) || "post";
+  let candidate = base;
+  for (let i = 0; i < 50; i++) {
+    const clash = await prisma.blogPost.findUnique({ where: { slug: candidate } });
+    if (!clash || clash.id === excludeId) return candidate;
+    candidate = `${base}-${i + 2}`;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/** Public: published posts only. */
 blogRouter.get(
   "/",
   wrap(async (_req, res) => {
@@ -382,35 +396,62 @@ blogRouter.get(
     );
   })
 );
+
+/** Staff: everything, drafts included. Before /:slug so it isn't read as one. */
 blogRouter.get(
-  "/:slug",
+  "/admin/all",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json(
+      await prisma.blogPost.findMany({ orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }] })
+    );
+  })
+);
+
+/** Staff: fetch one by id for editing, published or not. */
+blogRouter.get(
+  "/admin/:id",
+  requireStaff,
   wrap(async (req, res) => {
-    const post = await prisma.blogPost.findUnique({
-      where: { slug: req.params.slug },
-    });
-    if (!post || !post.published)
-      return res.status(404).json({ error: "Not found" });
+    const post = await prisma.blogPost.findUnique({ where: { id: req.params.id } });
+    if (!post) throw new HttpError(404, "Post not found");
     res.json(post);
   })
 );
+
+blogRouter.get(
+  "/:slug",
+  wrap(async (req, res) => {
+    const post = await prisma.blogPost.findUnique({ where: { slug: req.params.slug } });
+    if (!post || !post.published) return res.status(404).json({ error: "Not found" });
+    res.json(post);
+  })
+);
+
+const blogSchema = z.object({
+  title: z.string().min(2),
+  excerpt: z.string().max(400).optional().nullable(),
+  // Markdown, not HTML: the storefront renders a fixed subset, so a post can
+  // never inject script or arbitrary markup into the shop.
+  body: z.string().min(1),
+  coverImage: z.string().optional().nullable(),
+  published: z.boolean().default(false),
+});
+
 blogRouter.post(
   "/",
   requireStaff,
   wrap(async (req, res) => {
-    const data = z
-      .object({
-        title: z.string(),
-        excerpt: z.string().optional(),
-        body: z.string(),
-        coverImage: z.string().optional(),
-        published: z.boolean().default(false),
-      })
-      .parse(req.body);
+    const data = blogSchema.parse(req.body);
     res.status(201).json(
       await prisma.blogPost.create({
         data: {
-          ...data,
-          slug: slugify(data.title),
+          title: data.title.trim(),
+          excerpt: data.excerpt || null,
+          body: data.body,
+          coverImage: data.coverImage || null,
+          published: data.published,
+          slug: await uniqueBlogSlug(data.title),
           publishedAt: data.published ? new Date() : null,
         },
       })
@@ -418,30 +459,160 @@ blogRouter.post(
   })
 );
 
-// --------------------------------------------------------------------- faq
-export const faqRouter = Router();
-faqRouter.get(
-  "/",
-  wrap(async (_req, res) => {
+blogRouter.patch(
+  "/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    const data = blogSchema.partial().parse(req.body);
+    const existing = await prisma.blogPost.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new HttpError(404, "Post not found");
+
+    // publishedAt is the first time it went live, and stays put on later edits
+    // so the blog doesn't reshuffle every time someone fixes a typo.
+    const goingLive = data.published === true && !existing.published;
+
     res.json(
-      await prisma.faq.findMany({
-        where: { active: true },
-        orderBy: { position: "asc" },
+      await prisma.blogPost.update({
+        where: { id: existing.id },
+        data: {
+          title: data.title?.trim(),
+          excerpt: data.excerpt === undefined ? undefined : data.excerpt || null,
+          body: data.body,
+          coverImage: data.coverImage === undefined ? undefined : data.coverImage || null,
+          published: data.published,
+          slug:
+            data.title && data.title.trim() !== existing.title
+              ? await uniqueBlogSlug(data.title, existing.id)
+              : undefined,
+          publishedAt: goingLive ? existing.publishedAt ?? new Date() : undefined,
+        },
       })
     );
   })
 );
+
+blogRouter.delete(
+  "/:id",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (req, res) => {
+    const post = await prisma.blogPost.findUnique({ where: { id: req.params.id } });
+    if (!post) throw new HttpError(404, "Post not found");
+
+    // Free any uploaded images the post owned and nothing else references.
+    const mediaIds = [...post.body.matchAll(/\/api\/media\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
+    if (post.coverImage) {
+      const m = /\/api\/media\/([A-Za-z0-9_-]+)/.exec(post.coverImage);
+      if (m) mediaIds.push(m[1]);
+    }
+
+    await prisma.blogPost.delete({ where: { id: post.id } });
+
+    if (mediaIds.length) {
+      const stillUsed = await prisma.productImage.findMany({
+        where: { mediaId: { in: mediaIds } },
+        select: { mediaId: true },
+      });
+      const keep = new Set(stillUsed.map((i) => i.mediaId));
+      const removable = mediaIds.filter((id) => !keep.has(id));
+      if (removable.length)
+        await prisma.mediaAsset.deleteMany({ where: { id: { in: removable } } });
+    }
+
+    res.json({ ok: true });
+  })
+);
+
+// --------------------------------------------------------------------- faq
+export const faqRouter = Router();
+
+/** Public: active questions, in the order the shop arranged them. */
+faqRouter.get(
+  "/",
+  wrap(async (_req, res) => {
+    res.json(
+      await prisma.faq.findMany({ where: { active: true }, orderBy: { position: "asc" } })
+    );
+  })
+);
+
+/** Staff: includes hidden entries. */
+faqRouter.get(
+  "/admin/all",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json(await prisma.faq.findMany({ orderBy: { position: "asc" } }));
+  })
+);
+
 faqRouter.post(
   "/",
   requireStaff,
   wrap(async (req, res) => {
     const data = z
       .object({
-        question: z.string(),
-        answer: z.string(),
-        position: z.number().int().default(0),
+        question: z.string().min(3),
+        answer: z.string().min(1),
+        active: z.boolean().default(true),
       })
       .parse(req.body);
-    res.status(201).json(await prisma.faq.create({ data }));
+
+    // New questions go to the end rather than colliding on position 0.
+    const last = await prisma.faq.findFirst({ orderBy: { position: "desc" } });
+    res.status(201).json(
+      await prisma.faq.create({
+        data: {
+          question: data.question.trim(),
+          answer: data.answer,
+          active: data.active,
+          position: (last?.position ?? -1) + 1,
+        },
+      })
+    );
+  })
+);
+
+faqRouter.patch(
+  "/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    const data = z
+      .object({
+        question: z.string().min(3).optional(),
+        answer: z.string().min(1).optional(),
+        active: z.boolean().optional(),
+        position: z.number().int().optional(),
+      })
+      .parse(req.body);
+
+    res.json(
+      await prisma.faq.update({
+        where: { id: req.params.id },
+        data: { ...data, question: data.question?.trim() },
+      })
+    );
+  })
+);
+
+/** Persist a whole new order in one call, so drag/reorder is atomic. */
+faqRouter.post(
+  "/reorder",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
+    await prisma.$transaction(
+      ids.map((id, index) =>
+        prisma.faq.update({ where: { id }, data: { position: index } })
+      )
+    );
+    res.json({ ok: true });
+  })
+);
+
+faqRouter.delete(
+  "/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    await prisma.faq.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
   })
 );

@@ -11,6 +11,8 @@ import Customers from "@/pages/Customers";
 import Sms from "@/pages/Sms";
 import Delivery from "@/pages/Delivery";
 import StaffPage from "@/pages/Staff";
+import Blog from "@/pages/Blog";
+import Faqs from "@/pages/Faqs";
 import Settings from "@/pages/Settings";
 
 export default function App() {
@@ -71,6 +73,22 @@ export default function App() {
           element={
             <ProtectedRoute roles={["SUPERADMIN", "ADMIN"]}>
               <Delivery />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/blog"
+          element={
+            <ProtectedRoute roles={["SUPERADMIN", "ADMIN", "STAFF"]}>
+              <Blog />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/faqs"
+          element={
+            <ProtectedRoute roles={["SUPERADMIN", "ADMIN", "STAFF"]}>
+              <Faqs />
             </ProtectedRoute>
           }
         />

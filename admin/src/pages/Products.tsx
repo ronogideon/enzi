@@ -6,6 +6,7 @@ import type { Product, Category, ProductImage } from "@/lib/types";
 import {
   PageHeader, Spinner, EmptyState, Modal, Badge, Toggle, useAsync,
 } from "@/components/ui";
+import { Icon } from "@/components/Icons";
 import { ImageUploader } from "@/components/ImageUploader";
 
 type Filter = "all" | "active" | "hidden" | "lowstock";
@@ -76,6 +77,7 @@ export default function Products() {
         subtitle="Your catalogue — photos, prices, stock and visibility"
         action={
           <button className="btn-primary" onClick={() => setCreating(true)}>
+            <Icon.Plus className="h-4 w-4" />
             Add product
           </button>
         }

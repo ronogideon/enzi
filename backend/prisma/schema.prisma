@@ -384,6 +384,13 @@ model Payment {
   resultDesc        String?
   rawCallback       Json?
 
+  /// Provider-agnostic identifiers, so a second gateway doesn't have to
+  /// masquerade as Daraja. Kopo Kopo's incoming-payment id lands in
+  /// providerRef; whatever reference the customer sees on their phone
+  /// (M-Pesa code, Kopo Kopo receipt) lands in receiptRef.
+  providerRef       String?         @unique
+  receiptRef        String?
+
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 

@@ -24,12 +24,12 @@ export default async function BlogPage() {
           <p className="text-muted">No blog posts available yet. Check back soon.</p>
         </div>
       ) : (
-        <div className="mt-14 grid gap-8 md:grid-cols-3">
+        <div className="stagger mt-14 grid gap-8 md:grid-cols-3">
           {posts.map((p) => (
             <Link
               key={p.id}
               href={`/blog/${p.slug}`}
-              className="card card-hover overflow-hidden"
+              className="card lift zoom-frame overflow-hidden"
             >
               <SmartImage
                 src={p.coverImage}

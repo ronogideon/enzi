@@ -37,7 +37,10 @@
 }
 
 @layer components {
-  .card { @apply rounded-2xl border border-ink-line bg-ink-card; }
+  .card {
+    @apply rounded-2xl border border-ink-line bg-ink-card;
+    transition: border-color 200ms ease, background-color 200ms ease;
+  }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
       text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50;
@@ -57,6 +60,23 @@
   .label { @apply mb-1.5 block text-xs font-medium text-muted; }
   .th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-faint; }
   .td { @apply px-4 py-3 text-sm text-cloud; }
+
+  /* Rendered Markdown, used by the blog preview and the FAQ list. The
+     renderer emits its own utility classes; these cover the bare tags. */
+  .prose-enzi { @apply text-muted; }
+  .prose-enzi > *:first-child { @apply mt-0; }
+  .prose-enzi p { @apply mb-4 leading-relaxed; }
+  .prose-enzi h2, .prose-enzi h3, .prose-enzi h4 {
+    @apply font-display font-bold text-white;
+  }
+  .prose-enzi a { @apply text-white underline underline-offset-4; }
+  .prose-enzi strong { @apply font-semibold text-white; }
+  .prose-enzi img { @apply my-5 w-full rounded-xl border border-ink-line; }
+  .prose-enzi ul { @apply mb-4 list-disc space-y-1.5 pl-5; }
+  .prose-enzi ol { @apply mb-4 list-decimal space-y-1.5 pl-5; }
+  .prose-enzi blockquote { @apply my-4 border-l-2 border-white/25 pl-4 italic text-cloud; }
+  .prose-enzi code { @apply rounded bg-white/10 px-1.5 py-0.5 text-[0.9em]; }
+  .prose-enzi hr { @apply my-8 border-ink-line; }
 
   /* Mobile record card — the stand-in for a table row on small screens. */
   .rec { @apply card p-4; }

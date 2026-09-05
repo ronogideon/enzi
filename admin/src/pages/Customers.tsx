@@ -5,6 +5,7 @@ import type { Customer } from "@/lib/types";
 import {
   PageHeader, Spinner, EmptyState, Modal, Badge, Toggle, useAsync,
 } from "@/components/ui";
+import { Icon } from "@/components/Icons";
 
 export default function Customers() {
   const [search, setSearch] = useState("");
@@ -39,6 +40,7 @@ export default function Customers() {
         subtitle="Everyone who has ordered — built automatically at checkout"
         action={
           <button className="btn-ghost" onClick={exportCsv} disabled={exporting}>
+            <Icon.Download className="h-4 w-4" />
             {exporting ? "Preparing…" : "Export CSV"}
           </button>
         }
