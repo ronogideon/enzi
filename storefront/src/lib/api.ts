@@ -38,7 +38,15 @@ async function get<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
-/** Client-side request that throws, so callers can surface a real message. */
+/**
+ * Client-side request that throws, so callers can surface a real message.
+ *
+ * The error text matters here. A bare "Request failed (404)" is what you get
+ * when the response body isn't JSON at all — which means the request never
+ * reached this API and something else (a web server, a Next.js 404 page, a
+ * proxy) answered instead. That is a configuration problem, not a bug in the
+ * form, so the message says so and names the URL it actually called.
+ */
 export async function request<T>(
   path: string,
   opts: { method?: string; body?: unknown; auth?: boolean } = {}
@@ -50,25 +58,67 @@ export async function request<T>(
     if (t) headers.Authorization = `Bearer ${t}`;
   }
 
+  const url = `${BASE}${path}`;
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(url, {
       method: opts.method ?? "GET",
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
   } catch {
-    throw new Error(
-      "Couldn't reach the server. Check your connection and try again."
+    throw new ApiError(
+      `Couldn't reach the server at ${BASE}. Check your connection and try again.`,
+      { url, kind: "network" }
     );
   }
 
   if (!res.ok) {
-    const payload = await res.json().catch(() => null);
-    throw new Error(payload?.error ?? `Request failed (${res.status})`);
+    const text = await res.text().catch(() => "");
+    let payload: { error?: string } | null = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+
+    if (payload?.error) throw new ApiError(payload.error, { url, kind: "api", status: res.status });
+
+    // Non-JSON body => we're not talking to the API.
+    const looksLikeHtml = /^\s*<(!doctype|html)/i.test(text);
+    if (res.status === 404 && looksLikeHtml)
+      throw new ApiError(
+        `The shop is pointed at the wrong address for its server, so signing up can't work yet. ` +
+          `It tried ${url} and got a web page instead of the API.`,
+        { url, kind: "misconfigured", status: 404 }
+      );
+
+    throw new ApiError(`Request failed (${res.status}) at ${url}`, {
+      url,
+      kind: "api",
+      status: res.status,
+    });
   }
+
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** Carries enough context for a page to explain what actually went wrong. */
+export class ApiError extends Error {
+  url: string;
+  status?: number;
+  kind: "network" | "api" | "misconfigured";
+  constructor(
+    message: string,
+    meta: { url: string; status?: number; kind: "network" | "api" | "misconfigured" }
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.url = meta.url;
+    this.status = meta.status;
+    this.kind = meta.kind;
+  }
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {
@@ -77,6 +127,20 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   base: BASE,
+
+  /** Is the API reachable at the configured address? Used by the sign-up page. */
+  async health(): Promise<{ ok: boolean; url: string; error?: string }> {
+    const url = `${BASE}/health`;
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return { ok: false, url, error: `The server answered ${res.status}.` };
+      const body = await res.json().catch(() => null);
+      if (!body?.ok) return { ok: false, url, error: "That address isn't the shop's API." };
+      return { ok: true, url };
+    } catch {
+      return { ok: false, url, error: "No response from the server." };
+    }
+  },
 
   categories: () => get<Category[]>("/categories", []),
 
@@ -130,6 +194,10 @@ export const api = {
       "/auth/customer/check",
       { phone }
     ),
+
+  /** Is this email free? Lets the sign-up form flag a clash before submitting. */
+  checkEmail: (email: string) =>
+    post<{ taken: boolean }>("/auth/customer/check-email", { email }),
 
   // ---- checkout ----
   priceCart: (lines: { productId: string; quantity: number }[], tier: Tier) =>

@@ -257,6 +257,26 @@ authRouter.get(
 );
 
 /**
+ * Is this email already taken? Lets the sign-up form flag a clash inline,
+ * rather than letting someone fill the whole form and fail on submit.
+ * Returns only a boolean — it never confirms whose account it is.
+ */
+authRouter.post(
+  "/customer/check-email",
+  wrap(async (req, res) => {
+    const { email } = z.object({ email: z.string() }).parse(req.body);
+    const trimmed = email.toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) return res.json({ taken: false });
+
+    const existing = await prisma.customer.findFirst({
+      where: { email: trimmed, passwordHash: { not: null } },
+      select: { id: true },
+    });
+    res.json({ taken: !!existing });
+  })
+);
+
+/**
  * Does an account already exist for this number? The checkout uses it to tell
  * a returning guest "you have an account — sign in to autofill" instead of
  * silently failing at registration time.

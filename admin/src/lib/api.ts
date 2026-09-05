@@ -145,14 +145,38 @@ export function mediaUrl(url: string): string {
 }
 
 export const api = {
-  /** Reachability probe for the login screen. Does not need a token. */
-  async health(): Promise<{ ok: boolean; version?: string; error?: string; url: string }> {
+  /**
+   * Reachability + setup probe for the login screen. Does not need a token.
+   * `setupRequired` tells us the staff table is empty, which is the difference
+   * between "you typed the wrong password" and "no account has ever existed".
+   */
+  async health(): Promise<{
+    ok: boolean;
+    url: string;
+    version?: string;
+    error?: string;
+    setupRequired?: boolean;
+    database?: "ok" | "unreachable" | "no-schema";
+  }> {
     const url = `${BASE}/health`;
     try {
       const res = await fetch(url, { method: "GET" });
-      if (!res.ok) return { ok: false, url, error: `API responded ${res.status} ${res.statusText}` };
-      const body = await res.json().catch(() => ({}));
-      return { ok: true, url, version: body.version };
+      if (!res.ok)
+        return { ok: false, url, error: `API responded ${res.status} ${res.statusText}` };
+      const body = await res.json().catch(() => null);
+      if (!body?.ok)
+        return {
+          ok: false,
+          url,
+          error: "Something answered, but it isn't the Enzi API. Check the URL.",
+        };
+      return {
+        ok: true,
+        url,
+        version: body.version,
+        setupRequired: body.setupRequired,
+        database: body.database,
+      };
     } catch {
       return {
         ok: false,

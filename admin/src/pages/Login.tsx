@@ -3,7 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { api, apiBase, NetworkError } from "@/lib/api";
 
-type Health = { ok: boolean; url: string; version?: string; error?: string } | null;
+type Health = {
+  ok: boolean;
+  url: string;
+  version?: string;
+  error?: string;
+  setupRequired?: boolean;
+  database?: "ok" | "unreachable" | "no-schema";
+} | null;
 
 /**
  * The login screen doubles as a connection diagnostic. If the API can't be
@@ -62,6 +69,8 @@ export default function Login() {
   }
 
   const unreachable = !checking && health && !health.ok;
+  const noSchema = !checking && health?.ok && health.database === "no-schema";
+  const noAccounts = !checking && health?.ok && health.setupRequired;
 
   return (
     <div className="grid min-h-screen place-items-center px-4 py-10">
@@ -92,6 +101,37 @@ export default function Login() {
             >
               {showFixer ? "Hide" : "Set the API URL here"}
             </button>
+          </div>
+        )}
+
+        {/* The database is up but the tables aren't there yet. */}
+        {noSchema && (
+          <div className="mb-4 rounded-xl border border-gold/30 bg-gold/10 p-4 text-sm">
+            <p className="font-medium text-gold">The database has no tables yet</p>
+            <p className="mt-1 text-muted">
+              Run <code className="text-cloud">npm run db:push</code> in the backend
+              service's Railway shell, then reload this page.
+            </p>
+          </div>
+        )}
+
+        {/* Connected, schema present, but nobody has ever been created. */}
+        {noAccounts && (
+          <div className="mb-4 rounded-xl border border-gold/30 bg-gold/10 p-4 text-sm">
+            <p className="font-medium text-gold">No staff account exists yet</p>
+            <p className="mt-1 text-muted">
+              There's nothing to sign in to — no password will work until an account
+              is created. Restart the backend service and it will create an owner
+              account automatically, printing the login details in the deploy log.
+            </p>
+            <p className="mt-2 text-xs text-faint">
+              Or run this in the backend's Railway shell:
+              <br />
+              <code className="text-cloud">
+                ADMIN_EMAIL=you@enzipackaging.co.ke ADMIN_PASSWORD='your-password' npm run
+                reset-admin
+              </code>
+            </p>
           </div>
         )}
 
@@ -163,7 +203,10 @@ export default function Login() {
           {checking ? (
             "Checking connection…"
           ) : health?.ok ? (
-            <>Connected to API {health.version ? `v${health.version}` : ""}</>
+            <>
+              Connected to API {health.version ? `v${health.version}` : ""}
+              {health.database === "unreachable" && " — but the database is unreachable"}
+            </>
           ) : (
             <button type="button" onClick={() => void check()} className="hover:text-muted">
               Retry connection

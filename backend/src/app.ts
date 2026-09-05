@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { env } from "./config/env";
+import { prisma } from "./lib/prisma";
 import { api } from "./routes";
 import { notFound, errorHandler } from "./middleware/error";
 
@@ -57,14 +58,30 @@ export function createApp() {
   app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
-  const health = (_req: express.Request, res: express.Response) =>
+  /**
+   * Health + setup state. `setupRequired` and `database` let the login screen
+   * say something useful ("no admin account exists yet", "database not
+   * reachable") instead of the generic "invalid email or password" that a
+   * missing account would otherwise produce.
+   */
+  const health = async (_req: express.Request, res: express.Response) => {
+    let database: "ok" | "unreachable" | "no-schema" = "ok";
+    let setupRequired = false;
+    try {
+      setupRequired = (await prisma.staffUser.count()) === 0;
+    } catch (e: any) {
+      database = typeof e?.code === "string" && e.code.startsWith("P1") ? "unreachable" : "no-schema";
+    }
     res.json({
       ok: true,
       service: "enzi-backend",
-      version: "0.4.0",
+      version: "0.4.1",
       env: env.nodeEnv,
+      database,
+      setupRequired,
       time: new Date().toISOString(),
     });
+  };
 
   // Both paths answer: /health for Railway's checker, /api/health so the
   // frontends can verify their configured API base in one request.

@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.4.0 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.4.1 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -18,6 +18,13 @@ The schema changed, so push it before anything else.
 # In the Railway shell for the BACKEND service:
 npm run db:push        # adds MediaAsset, OrderEvent, and the new columns
 ```
+
+> **If `db:push` or `seed` previously failed with "command not found", that was
+> the bug.** `prisma` and `tsx` were devDependencies, and Railway prunes
+> devDependencies from the production image — so neither command existed in the
+> deploy shell. Both are now runtime dependencies, and the backend creates an
+> owner account by itself on first boot regardless. See
+> "Why the admin password didn't work" below.
 
 `db:push` is additive here — every new column is nullable or has a default, so
 existing products, orders and customers are untouched.
@@ -68,13 +75,58 @@ wrong:
    API URL from the browser — enough to get in and fix the real config without a
    redeploy cycle. That override lives in `localStorage` only.
 
-**Locked out entirely?** From the backend's Railway shell:
+---
+
+## Why the admin password didn't work
+
+The seed never ran. `npm run seed` executes through `tsx`, which was a
+**devDependency** — and Railway prunes devDependencies out of the production
+image. So the command failed with `tsx: not found`, no staff account was ever
+created, and the login endpoint correctly answered "invalid email or password"
+because there was genuinely nothing to match. The same applied to `npm run
+db:push`, which needs the `prisma` CLI.
+
+Fixed four ways, so this can't be a dead end again:
+
+1. **`prisma` and `tsx` moved to `dependencies`**, so the documented shell
+   commands actually exist in the deployed container.
+2. **The backend creates an owner account on boot** if the staff table is
+   completely empty (`src/lib/bootstrap.ts`), printing the credentials into the
+   deploy log. It needs only `@prisma/client` and `bcryptjs`, both production
+   deps, so it works no matter how the image is pruned. It only ever fires on
+   an empty table, so it can't resurrect an account you deleted on purpose.
+3. **`/api/health` now reports `setupRequired` and `database`**, and the login
+   page uses them: it says "no staff account exists yet" or "the database has no
+   tables yet" instead of letting you retype a password that was never wrong.
+4. **Recovery scripts are plain CommonJS** (`backend/scripts/`), needing no
+   TypeScript runner at all.
+
+### Getting in now
+
+Easiest — just **redeploy the backend** and read the log:
+
+```
+================================================================
+[enzi] No staff accounts existed, so an owner account was created:
+
+    Email:    admin@enzipackaging.co.ke
+    Password: changeme123
+================================================================
+```
+
+To set your own instead, add `ADMIN_EMAIL` and `ADMIN_PASSWORD` as Railway
+variables before that first boot.
+
+Already have accounts but can't get in? From the backend's Railway shell:
 
 ```bash
+npm run whoami          # lists which accounts exist — no hashes printed
 ADMIN_EMAIL=you@enzipackaging.co.ke ADMIN_PASSWORD='a-new-password' npm run reset-admin
 ```
 
-Creates or resets the account, sets it SUPERADMIN, and marks it active.
+Or, without a shell at all: set `ADMIN_RESET_PASSWORD` in Railway, redeploy,
+then **delete the variable** — while it's set, the password resets on every
+deploy, and the logs will keep telling you so.
 
 ---
 
@@ -151,7 +203,11 @@ order history — the UI explains this rather than just failing.
 
 ### Customer accounts
 Sign-up, sign-in (by phone *or* email), profile editing, password change and
-order history at `/account`. Phone stays the identity — it's what M-Pesa and
+order history at `/account`. The sign-up form validates as you type: email
+format with plain-language messages ("the part after @ needs a dot"), common
+domain typos surfaced as suggestions ("did you mean jane@gmail.com?"), and
+debounced availability checks against the API so a clash on an email or phone
+shows up while the field is still in front of you rather than on submit. Phone stays the identity — it's what M-Pesa and
 delivery key on — but name and email are captured properly.
 
 A guest who checked out before already has a customer record keyed by phone;
@@ -260,6 +316,8 @@ Verified in this drop:
 
 - `admin` — `tsc --noEmit` clean, `vite build` succeeds.
 - `storefront` — `tsc --noEmit` clean, `next build` succeeds (all 15 routes).
+- Recovery paths (`bootstrap.ts`, `scripts/*.js`) depend only on production
+  packages, so they survive Railway's devDependency pruning.
 - `backend` — typechecks clean against the source; the Prisma client can only be
   generated where `binaries.prisma.sh` is reachable, so full client-type
   validation happens on Railway's build. Every `prisma.<model>` accessor and
