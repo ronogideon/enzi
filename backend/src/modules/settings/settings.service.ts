@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
+import { encryptSecret, decryptSecret, isEncrypted } from "../../lib/crypto";
 
 /**
  * Settings live in Postgres so the shop owner can change them from the admin
@@ -75,7 +76,10 @@ async function load(): Promise<Map<string, string>> {
   for (const row of rows) {
     const v = row.value;
     if (v === null || v === undefined) continue;
-    map.set(row.key, typeof v === "string" ? v : JSON.stringify(v));
+    const raw = typeof v === "string" ? v : JSON.stringify(v);
+    // Secrets are stored encrypted; everything else is plain. Values saved
+    // before encryption existed pass through untouched.
+    map.set(row.key, SECRET_KEYS.has(row.key) ? decryptSecret(raw) : raw);
   }
   cache = map;
   cachedAt = Date.now();
@@ -113,12 +117,40 @@ export async function getBool(key: string, fallback = false): Promise<boolean> {
 
 export async function setSetting(key: string, value: string) {
   const secret = SECRET_KEYS.has(key);
+  // Encrypt before it ever reaches Postgres, so a database dump alone can't
+  // give up the shop's payment credentials.
+  const stored = secret && value ? encryptSecret(value) : value;
+
   await prisma.setting.upsert({
     where: { key },
-    create: { key, value, secret },
-    update: { value, secret },
+    create: { key, value: stored, secret },
+    update: { value: stored, secret },
   });
   invalidateSettings();
+}
+
+/**
+ * Encrypts any secret still sitting in the database as plain text. Runs once at
+ * startup so an existing deployment is protected without anyone re-entering
+ * their keys by hand.
+ */
+export async function encryptStoredSecrets(): Promise<number> {
+  const rows = await prisma.setting.findMany({
+    where: { key: { in: [...SECRET_KEYS] } },
+  });
+
+  let migrated = 0;
+  for (const row of rows) {
+    const raw = typeof row.value === "string" ? row.value : null;
+    if (!raw || isEncrypted(raw)) continue;
+    await prisma.setting.update({
+      where: { key: row.key },
+      data: { value: encryptSecret(raw), secret: true },
+    });
+    migrated++;
+  }
+  if (migrated) invalidateSettings();
+  return migrated;
 }
 
 /** "••••••4821" — enough to confirm which key is loaded, useless if leaked. */

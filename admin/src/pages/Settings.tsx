@@ -3,8 +3,9 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { SettingsMap } from "@/lib/types";
 import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
+import { Icon } from "@/components/Icons";
 
-type TabKey = "business" | "payments" | "kopokopo" | "sms" | "account";
+type TabKey = "business" | "payments" | "sms" | "account";
 
 interface Field {
   key: string;
@@ -15,12 +16,11 @@ interface Field {
   options?: { value: string; label: string }[];
 }
 
-const TABS: { key: TabKey; label: string; adminOnly?: boolean }[] = [
-  { key: "business", label: "Business" },
-  { key: "payments", label: "M-Pesa" },
-  { key: "kopokopo", label: "Kopo Kopo", adminOnly: true },
-  { key: "sms", label: "SMS", adminOnly: true },
-  { key: "account", label: "My account" },
+const TABS: { key: TabKey; label: string; icon: keyof typeof Icon; adminOnly?: boolean }[] = [
+  { key: "business", label: "Business", icon: "Products" },
+  { key: "payments", label: "Payments", icon: "Money", adminOnly: true },
+  { key: "sms", label: "SMS", icon: "Sms", adminOnly: true },
+  { key: "account", label: "My account", icon: "Staff" },
 ];
 
 const BUSINESS: Field[] = [
@@ -37,34 +37,7 @@ const BUSINESS: Field[] = [
   },
 ];
 
-/**
- * Which gateway takes online payments. Both end in the same customer
- * experience — an STK prompt on the phone — so this is purely about who you
- * hold the merchant relationship with.
- */
-const GATEWAY: Field[] = [
-  {
-    key: "payments.provider",
-    label: "Payment gateway",
-    type: "select",
-    options: [
-      { value: "mpesa", label: "M-Pesa (Daraja) — direct from Safaricom" },
-      { value: "kopokopo", label: "Kopo Kopo — settles to your K2 till" },
-    ],
-    hint: "If the one you pick isn't fully configured, checkout falls back to whichever is — so a half-finished switch can't take the shop offline.",
-  },
-];
-
 const KOPOKOPO: Field[] = [
-  {
-    key: "kopokopo.enabled",
-    label: "Kopo Kopo payments",
-    type: "select",
-    options: [
-      { value: "false", label: "Off" },
-      { value: "true", label: "On" },
-    ],
-  },
   {
     key: "kopokopo.env",
     label: "Environment",
@@ -164,20 +137,29 @@ export default function Settings() {
     <>
       <PageHeader title="Settings" subtitle="Business details, payment keys and your own login" />
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-full border px-4 py-1.5 text-sm ${
-              tab === t.key
-                ? "border-white/40 text-white"
-                : "border-ink-line text-muted hover:text-cloud"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Underlined tabs sitting on a single faint rule, so the divider reads
+          as one continuous line with the active tab cutting through it. */}
+      <div className="mb-8 border-b border-ink-line">
+        <div className="-mb-px flex gap-8 overflow-x-auto">
+          {tabs.map((t) => {
+            const Glyph = Icon[t.icon];
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`flex shrink-0 items-center gap-2 border-b-2 pb-3 pt-1 text-sm transition-colors ${
+                  active
+                    ? "border-white text-white"
+                    : "border-transparent text-muted hover:border-white/20 hover:text-cloud"
+                }`}
+              >
+                <Glyph className="h-4 w-4" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {tab === "account" ? (
@@ -216,6 +198,159 @@ export default function Settings() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * Payments.
+ *
+ * Only one gateway processes money at a time, so this is a choice, not two
+ * parallel forms: pick the provider, fill in its keys, test it, then it's live.
+ * Presenting both side by side invited the failure mode of half-configuring one
+ * while the other was silently in use.
+ */
+function PaymentsPanel({
+  settings,
+  onSaved,
+}: {
+  settings: SettingsMap;
+  onSaved: () => void;
+}) {
+  const current = settings["payments.provider"]?.value === "kopokopo" ? "kopokopo" : "mpesa";
+  const [selected, setSelected] = useState<"mpesa" | "kopokopo">(current);
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const providers = [
+    {
+      key: "mpesa" as const,
+      name: "M-Pesa (Daraja)",
+      blurb: "Direct from Safaricom, straight to your own paybill or till. No middleman fee.",
+      requires: ["mpesa.consumerKey", "mpesa.consumerSecret", "mpesa.shortcode", "mpesa.passkey"],
+      fields: PAYMENTS,
+      test: api.testMpesa,
+    },
+    {
+      key: "kopokopo" as const,
+      name: "Kopo Kopo",
+      blurb:
+        "Settles to your Kopo Kopo till and reconciles payments in their dashboard, for a transaction fee.",
+      requires: ["kopokopo.clientId", "kopokopo.clientSecret", "kopokopo.tillNumber"],
+      fields: KOPOKOPO,
+      test: api.testKopokopo,
+    },
+  ];
+
+  const isConfigured = (keys: string[]) => keys.every((k) => settings[k]?.isSet);
+
+  async function makeLive(provider: "mpesa" | "kopokopo") {
+    setSwitching(true);
+    setError(null);
+    try {
+      await api.setSetting("payments.provider", provider);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't switch gateway");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  const active = providers.find((p) => p.key === selected)!;
+
+  return (
+    <div className="max-w-2xl">
+      {error && (
+        <div className="mb-5 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <Icon.Alert className="mt-0.5 h-4 w-4" />
+          {error}
+        </div>
+      )}
+
+      <h2 className="font-display text-lg font-bold text-white">Payment gateway</h2>
+      <p className="mt-1 text-sm text-muted">
+        Customers see the same M-PESA prompt either way — this is about who you hold the
+        merchant relationship with. One is live at a time.
+      </p>
+
+      <div className="mt-5 space-y-3">
+        {providers.map((p) => {
+          const configured = isConfigured(p.requires);
+          const live = current === p.key;
+          return (
+            <button
+              key={p.key}
+              onClick={() => setSelected(p.key)}
+              className={`w-full rounded-xl border p-4 text-left transition-colors ${
+                selected === p.key
+                  ? "border-white/40 bg-ink-hover/40"
+                  : "border-ink-line hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                    selected === p.key ? "border-white" : "border-ink-line"
+                  }`}
+                >
+                  {selected === p.key && <span className="h-2 w-2 rounded-full bg-white" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-white">{p.name}</span>
+                    {live && <Badge tone="green">live</Badge>}
+                    {configured ? (
+                      !live && <Badge tone="muted">configured</Badge>
+                    ) : (
+                      <Badge tone="gold">not set up</Badge>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-muted">{p.blurb}</p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Steps, in the order they have to happen. */}
+      <div className="mt-8 border-t border-ink-line pt-8">
+        <SettingsForm
+          title={`${active.name} credentials`}
+          description="Saved encrypted in your database and never shown again in full. They take effect on the very next checkout — no redeploy."
+          fields={active.fields}
+          settings={settings}
+          onSaved={onSaved}
+          onTest={active.test}
+          testLabel={`Test ${active.name} connection`}
+        />
+      </div>
+
+      {current !== selected && (
+        <div className="mt-6 rounded-xl border border-gold/30 bg-gold/10 p-4">
+          <p className="text-sm text-gold">
+            {active.name} isn't the live gateway yet.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Test the connection above first, then switch. If the gateway you pick isn't
+            fully configured, checkout falls back to whichever one is, so you can't take
+            the shop offline mid-switch.
+          </p>
+          <button
+            className="btn-primary mt-4"
+            onClick={() => makeLive(selected)}
+            disabled={switching || !isConfigured(active.requires)}
+          >
+            {switching ? "Switching…" : `Make ${active.name} live`}
+          </button>
+          {!isConfigured(active.requires) && (
+            <p className="mt-2 text-xs text-faint">
+              Fill in the required credentials first.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

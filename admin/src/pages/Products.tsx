@@ -15,7 +15,7 @@ export default function Products() {
   const { can } = useAuth();
   const [search, setSearch] = useState("");
   const products = useAsync(() => api.allProducts(), []);
-  const cats = useAsync(() => api.categories(), []);
+  const cats = useAsync(() => api.categoriesAll(), []);
   const [editing, setEditing] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
@@ -290,6 +290,7 @@ export default function Products() {
         <ProductModal
           product={editing}
           categories={cats.data ?? []}
+          onCategoryAdded={cats.reload}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={() => { setCreating(false); setEditing(null); products.reload(); }}
         />
@@ -299,12 +300,13 @@ export default function Products() {
 }
 
 function ProductModal({
-  product, categories, onClose, onSaved,
+  product, categories, onClose, onSaved, onCategoryAdded,
 }: {
   product: Product | null;
   categories: Category[];
   onClose: () => void;
   onSaved: () => void;
+  onCategoryAdded: () => void;
 }) {
   const [form, setForm] = useState({
     name: product?.name ?? "",
@@ -323,7 +325,30 @@ function ProductModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+
+  /** Create a category and select it straight away — that's why you're here. */
+  async function createCategory() {
+    const name = newCategory.trim();
+    if (name.length < 2) return;
+    setCreatingCategory(true);
+    setError(null);
+    try {
+      const created = await api.createCategory({ name });
+      set("categoryId", created.id);
+      setAddingCategory(false);
+      setNewCategory("");
+      onCategoryAdded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't create that category");
+    } finally {
+      setCreatingCategory(false);
+    }
+  }
 
   const num = (v: string, fallback = 0) => {
     const n = Number(v);
@@ -406,16 +431,61 @@ function ProductModal({
 
         <div>
           <label className="label">Category</label>
-          <select
-            className="field"
-            value={form.categoryId}
-            onChange={(e) => set("categoryId", e.target.value)}
-          >
-            <option value="">— none —</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          {addingCategory ? (
+            // Inline rather than sending you to another screen: realising you
+            // need a category happens while you're mid-way through adding a
+            // product, and losing the half-filled form to go and make one is
+            // the reason things end up uncategorised.
+            <div className="flex gap-2">
+              <input
+                className="field"
+                autoFocus
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                placeholder="New category name"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); createCategory(); }
+                  if (e.key === "Escape") { setAddingCategory(false); setNewCategory(""); }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-primary shrink-0 px-3 text-xs"
+                onClick={createCategory}
+                disabled={creatingCategory || newCategory.trim().length < 2}
+              >
+                {creatingCategory ? "…" : "Add"}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost shrink-0 px-3 text-xs"
+                onClick={() => { setAddingCategory(false); setNewCategory(""); }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <select
+              className="field"
+              value={form.categoryId}
+              onChange={(e) => {
+                if (e.target.value === "__new__") {
+                  setAddingCategory(true);
+                  return;
+                }
+                set("categoryId", e.target.value);
+              }}
+            >
+              <option value="">— none —</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.active === false ? " (hidden)" : ""}
+                </option>
+              ))}
+              <option value="__new__">+ New category…</option>
+            </select>
+          )}
         </div>
         <div>
           <label className="label">SKU (optional)</label>

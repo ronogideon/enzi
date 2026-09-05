@@ -19,6 +19,7 @@ export default function CheckoutPage() {
   const [methods, setMethods] = useState<DeliveryMethod[]>([]);
   const [priced, setPriced] = useState<PricedCart | null>(null);
   const [methodId, setMethodId] = useState<string>("");
+  const [zoneId, setZoneId] = useState<string>("");
   const [payNow, setPayNow] = useState(false); // for POD-eligible methods
   const [form, setForm] = useState({ name: "", phone: "", email: "", details: "" });
 
@@ -82,6 +83,8 @@ export default function CheckoutPage() {
   }, [items]);
 
   const method = methods.find((m) => m.id === methodId) ?? null;
+  const zones = (method?.zones ?? []).filter((z) => z.active !== false);
+  const zone = zones.find((z) => z.id === zoneId) ?? null;
   const podEligible =
     !!method &&
     method.podAllowed &&
@@ -91,7 +94,18 @@ export default function CheckoutPage() {
   const willPayNow = !podEligible || payNow;
 
   const subtotal = priced?.subtotal ?? 0;
-  const deliveryFee = method?.baseCost ?? 0;
+  /**
+   * A zone's price replaces the method's flat cost, and a per-zone threshold
+   * can waive it. The server recalculates all of this at order time — this is
+   * only so the customer sees the right number before committing.
+   */
+  const deliveryFee = (() => {
+    if (!method) return 0;
+    if (zones.length === 0) return method.baseCost;
+    if (!zone) return 0;
+    if (zone.freeAbove != null && subtotal >= zone.freeAbove) return 0;
+    return zone.price;
+  })();
   const total = subtotal + deliveryFee;
   const needsAddress = method?.type === "DELIVERY";
 
@@ -101,8 +115,9 @@ export default function CheckoutPage() {
       form.name.trim().length > 1 &&
       validPhone(form.phone) &&
       !!methodId &&
+      (zones.length === 0 || !!zoneId) &&
       (!needsAddress || form.details.trim().length > 3),
-    [items.length, form, methodId, needsAddress]
+    [items.length, form, methodId, zoneId, zones.length, needsAddress]
   );
 
   async function submit() {
@@ -114,6 +129,7 @@ export default function CheckoutPage() {
         email: form.email.trim() || undefined,
         lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         deliveryMethodId: methodId,
+        deliveryZoneId: zoneId || undefined,
         deliveryDetails: form.details.trim()
           ? { note: form.details.trim() }
           : undefined,
@@ -308,6 +324,9 @@ export default function CheckoutPage() {
                       checked={methodId === m.id}
                       onChange={() => {
                         setMethodId(m.id);
+                        // A zone belongs to one method; carrying it across
+                        // would price the order against the wrong area.
+                        setZoneId("");
                         setPayNow(false);
                       }}
                       className="accent-white"
@@ -330,12 +349,65 @@ export default function CheckoutPage() {
                       )}
                     </div>
                     <span className="text-sm text-cloud">
-                      {m.baseCost === 0 ? "Free" : formatKes(m.baseCost)}
+                      {(m.zones ?? []).filter((z) => z.active !== false).length > 0
+                        ? "By area"
+                        : m.baseCost === 0
+                        ? "Free"
+                        : formatKes(m.baseCost)}
                     </span>
                   </label>
                 );
               })}
             </div>
+
+            {/* Areas, only for methods that have them. Required — otherwise
+                someone upcountry could check out at the CBD rate. */}
+            {zones.length > 0 && (
+              <div className="animate-rise mt-5">
+                <p className="label">Which area?</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {zones.map((z) => {
+                    const free = z.freeAbove != null && subtotal >= z.freeAbove;
+                    return (
+                      <label
+                        key={z.id}
+                        className={`card flex cursor-pointer items-center gap-3 p-3 transition-colors ${
+                          zoneId === z.id ? "border-white/40" : ""
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="zone"
+                          checked={zoneId === z.id}
+                          onChange={() => setZoneId(z.id)}
+                          className="accent-white"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-cloud">{z.name}</span>
+                          {z.description && (
+                            <span className="block text-xs text-faint">{z.description}</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-sm">
+                          {free ? (
+                            <span className="text-whatsapp">Free</span>
+                          ) : z.price === 0 ? (
+                            "Free"
+                          ) : (
+                            formatKes(z.price)
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {!zoneId && (
+                  <p className="mt-2 text-xs text-faint">
+                    Pick your area so we can work out the delivery cost.
+                  </p>
+                )}
+              </div>
+            )}
 
             {needsAddress && (
               <textarea

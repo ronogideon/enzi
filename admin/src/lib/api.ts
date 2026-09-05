@@ -1,7 +1,7 @@
 import type {
   Staff, StaffMember, Category, Product, Promotion, DeliveryMethod, Order,
   Customer, StockAudit, SmsCampaign, StatsOverview, SettingsMap, UploadedImage,
-  BlogPost, Faq,
+  BlogPost, Faq, DeliveryZone,
 } from "./types";
 
 declare global {
@@ -248,9 +248,17 @@ export const api = {
 
   // catalogue
   categories: () => req<Category[]>("/categories"),
-  createCategory: (body: unknown) => req<Category>("/categories", { method: "POST", body }),
-  updateCategory: (id: string, body: unknown) =>
+  categoriesAll: () => req<Category[]>("/categories/admin/all"),
+  createCategory: (body: { name: string; description?: string }) =>
+    req<Category>("/categories", { method: "POST", body }),
+  updateCategory: (id: string, body: Partial<Category>) =>
     req<Category>(`/categories/${id}`, { method: "PATCH", body }),
+  reorderCategories: (ids: string[]) =>
+    req<{ ok: boolean }>("/categories/reorder", { method: "POST", body: { ids } }),
+  deleteCategory: (id: string, force = false) =>
+    req<{ ok: boolean }>(`/categories/${id}${force ? "?force=true" : ""}`, {
+      method: "DELETE",
+    }),
 
   products: (params = "") => req<Product[]>(`/products${params}`),
   allProducts: (search?: string) =>
@@ -276,10 +284,26 @@ export const api = {
 
   // delivery
   deliveryMethods: () => req<DeliveryMethod[]>("/delivery-methods"),
+  deliveryMethodsAll: () => req<DeliveryMethod[]>("/delivery-methods/admin/all"),
   createDeliveryMethod: (body: unknown) =>
     req<DeliveryMethod>("/delivery-methods", { method: "POST", body }),
   updateDeliveryMethod: (id: string, body: unknown) =>
     req<DeliveryMethod>(`/delivery-methods/${id}`, { method: "PATCH", body }),
+  deleteDeliveryMethod: (id: string) =>
+    req<{ ok: boolean }>(`/delivery-methods/${id}`, { method: "DELETE" }),
+
+  // delivery zones — priced areas within a method
+  createZone: (methodId: string, body: Partial<DeliveryZone>) =>
+    req<DeliveryZone>(`/delivery-methods/${methodId}/zones`, { method: "POST", body }),
+  updateZone: (id: string, body: Partial<DeliveryZone>) =>
+    req<DeliveryZone>(`/delivery-methods/zones/${id}`, { method: "PATCH", body }),
+  reorderZones: (methodId: string, ids: string[]) =>
+    req<{ ok: boolean }>(`/delivery-methods/${methodId}/zones/reorder`, {
+      method: "POST",
+      body: { ids },
+    }),
+  deleteZone: (id: string) =>
+    req<{ ok: boolean }>(`/delivery-methods/zones/${id}`, { method: "DELETE" }),
 
   // orders
   orders: (params: { status?: string; search?: string } = {}) => {

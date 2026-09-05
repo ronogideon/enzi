@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", short: "Home", icon: "Dashboard", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
   { to: "/orders", label: "Orders", short: "Orders", icon: "Orders", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF", "SUPPORT"] },
   { to: "/products", label: "Products", short: "Products", icon: "Products", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
+  { to: "/categories", label: "Categories", short: "Groups", icon: "Promotions", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
   { to: "/stock", label: "Stock & Audits", short: "Stock", icon: "Stock", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "STAFF"] },
   { to: "/customers", label: "Customers", short: "People", icon: "Customers", group: "Shop", roles: ["SUPERADMIN", "ADMIN", "SUPPORT"] },
 

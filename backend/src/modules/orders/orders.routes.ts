@@ -51,6 +51,7 @@ ordersRouter.post(
         tier: z.enum(["RETAIL", "WHOLESALE"]).optional(),
         lines: z.array(lineSchema).min(1),
         deliveryMethodId: z.string(),
+        deliveryZoneId: z.string().optional(),
         deliveryDetails: z.any().optional(),
       })
       .parse(req.body);
@@ -103,6 +104,7 @@ ordersRouter.get(
       include: {
         customer: true,
         deliveryMethod: true,
+        deliveryZone: true,
         items: true,
         packedBy: { select: { id: true, name: true } },
       },

@@ -1,11 +1,12 @@
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { ensureAdminAccount } from "./lib/bootstrap";
+import { encryptStoredSecrets } from "./modules/settings/settings.service";
 
 const app = createApp();
 
 app.listen(env.port, "0.0.0.0", async () => {
-  console.log(`[enzi] v0.1.9 listening on :${env.port} (${env.nodeEnv})`);
+  console.log(`[enzi] v0.2.0 listening on :${env.port} (${env.nodeEnv})`);
   console.log(
     `[enzi] CORS: ${
       env.corsOrigins.length
@@ -26,6 +27,15 @@ app.listen(env.port, "0.0.0.0", async () => {
     await ensureAdminAccount();
   } catch (e) {
     console.error("[enzi] Admin bootstrap failed:", e);
+  }
+
+  // One-time, idempotent: encrypts any payment credential still stored as
+  // plain text from before encryption existed.
+  try {
+    const migrated = await encryptStoredSecrets();
+    if (migrated) console.log(`[enzi] Encrypted ${migrated} stored credential(s) at rest.`);
+  } catch (e) {
+    console.error("[enzi] Could not encrypt stored credentials:", e);
   }
 });
 

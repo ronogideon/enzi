@@ -116,9 +116,10 @@ model StaffUser {
 // ----------------------------------------------------------------------------
 
 model Category {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
   position  Int       @default(0)
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -276,6 +277,34 @@ model DeliveryMethod {
   updatedAt   DateTime     @updatedAt
 
   orders      Order[]
+  zones       DeliveryZone[]
+}
+
+/// A priced area within a delivery method — "Nairobi CBD", "Westlands",
+/// "Upcountry". Real delivery is never one flat fee: riding to Kilimani and
+/// couriering to Kisumu cost very different amounts, and a single baseCost
+/// forced the shop to either lose money on far orders or overcharge near ones.
+///
+/// Store pickup never has zones (the customer comes to you), which the API
+/// enforces rather than leaving to the UI.
+model DeliveryZone {
+  id          String         @id @default(cuid())
+  methodId    String
+  method      DeliveryMethod @relation(fields: [methodId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  /// Cents. Replaces the method's baseCost when this zone is chosen.
+  price       Int            @default(0)
+  /// Optional free-delivery threshold for this zone only, in cents.
+  freeAbove   Int?
+  active      Boolean        @default(true)
+  position    Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  orders      Order[]
+
+  @@index([methodId])
 }
 
 // ----------------------------------------------------------------------------
@@ -301,6 +330,8 @@ model Order {
   // delivery snapshot
   deliveryMethodId String?
   deliveryMethod   DeliveryMethod? @relation(fields: [deliveryMethodId], references: [id])
+  deliveryZoneId   String?
+  deliveryZone     DeliveryZone?   @relation(fields: [deliveryZoneId], references: [id])
   isPayOnDelivery  Boolean         @default(false)
   deliveryDetails  Json? // snapshot address / agent / matatu details
 

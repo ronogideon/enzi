@@ -15,6 +15,19 @@ const slugify = (s: string) =>
 
 // ---------------------------------------------------------------- categories
 export const categoriesRouter = Router();
+
+async function uniqueCategorySlug(name: string, excludeId?: string): Promise<string> {
+  const base = slugify(name) || "category";
+  let candidate = base;
+  for (let i = 0; i < 50; i++) {
+    const clash = await prisma.category.findUnique({ where: { slug: candidate } });
+    if (!clash || clash.id === excludeId) return candidate;
+    candidate = `${base}-${i + 2}`;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/** Public: active categories only. */
 categoriesRouter.get(
   "/",
   wrap(async (_req, res) => {
@@ -27,39 +40,150 @@ categoriesRouter.get(
     );
   })
 );
-categoriesRouter.post(
-  "/",
+
+/** Staff: includes hidden categories. Before /:id so it isn't read as one. */
+categoriesRouter.get(
+  "/admin/all",
   requireStaff,
-  wrap(async (req, res) => {
-    const { name, position } = z
-      .object({ name: z.string(), position: z.number().int().default(0) })
-      .parse(req.body);
-    res.status(201).json(
-      await prisma.category.create({
-        data: { name, slug: slugify(name), position },
+  wrap(async (_req, res) => {
+    res.json(
+      await prisma.category.findMany({
+        orderBy: [{ position: "asc" }, { name: "asc" }],
+        include: { _count: { select: { products: true } } },
       })
     );
   })
 );
+
+categoriesRouter.post(
+  "/",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { name, description, position } = z
+      .object({
+        name: z.string().min(2),
+        description: z.string().max(500).optional(),
+        position: z.number().int().optional(),
+      })
+      .parse(req.body);
+
+    const trimmed = name.trim();
+    const existing = await prisma.category.findFirst({
+      where: { name: { equals: trimmed, mode: "insensitive" } },
+    });
+    if (existing) throw new HttpError(409, `"${trimmed}" already exists`);
+
+    // New categories land at the end rather than colliding on position 0.
+    const last = await prisma.category.findFirst({ orderBy: { position: "desc" } });
+
+    res.status(201).json(
+      await prisma.category.create({
+        data: {
+          name: trimmed,
+          description: description?.trim() || null,
+          slug: await uniqueCategorySlug(trimmed),
+          position: position ?? (last?.position ?? -1) + 1,
+        },
+        include: { _count: { select: { products: true } } },
+      })
+    );
+  })
+);
+
 categoriesRouter.patch(
   "/:id",
   requireStaff,
   wrap(async (req, res) => {
     const data = z
       .object({
-        name: z.string().optional(),
+        name: z.string().min(2).optional(),
+        description: z.string().max(500).optional().nullable(),
         position: z.number().int().optional(),
         active: z.boolean().optional(),
       })
       .parse(req.body);
+
+    const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new HttpError(404, "Category not found");
+
     res.json(
-      await prisma.category.update({ where: { id: req.params.id }, data })
+      await prisma.category.update({
+        where: { id: existing.id },
+        data: {
+          ...data,
+          name: data.name?.trim(),
+          description:
+            data.description === undefined ? undefined : data.description?.trim() || null,
+          // Renaming regenerates the slug, since it appears in shop URLs.
+          slug:
+            data.name && data.name.trim() !== existing.name
+              ? await uniqueCategorySlug(data.name, existing.id)
+              : undefined,
+        },
+        include: { _count: { select: { products: true } } },
+      })
     );
+  })
+);
+
+/** Persist a whole new order in one call. */
+categoriesRouter.post(
+  "/reorder",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
+    await prisma.$transaction(
+      ids.map((id, index) => prisma.category.update({ where: { id }, data: { position: index } }))
+    );
+    res.json({ ok: true });
+  })
+);
+
+/**
+ * Delete. Products keep existing — they just lose their category — so this is
+ * safe, but it's worth saying how many will be affected before it happens,
+ * which is what the count in the error message is for.
+ */
+categoriesRouter.delete(
+  "/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    const category = await prisma.category.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { products: true } } },
+    });
+    if (!category) throw new HttpError(404, "Category not found");
+
+    const force = String(req.query.force) === "true";
+    if (category._count.products > 0 && !force)
+      throw new HttpError(
+        409,
+        `"${category.name}" still has ${category._count.products} product(s). Deleting it leaves them uncategorised.`
+      );
+
+    await prisma.$transaction([
+      prisma.product.updateMany({
+        where: { categoryId: category.id },
+        data: { categoryId: null },
+      }),
+      prisma.promotion.deleteMany({ where: { categoryId: category.id } }),
+      prisma.category.delete({ where: { id: category.id } }),
+    ]);
+    res.json({ ok: true });
   })
 );
 
 // ----------------------------------------------------------- delivery methods
 export const deliveryRouter = Router();
+
+const ZONED_TYPES = ["DELIVERY", "PARCEL", "PICKUP_MTAANI"] as const;
+
+/** Store pickup has no zones — the customer comes to you. */
+function supportsZones(type: string) {
+  return (ZONED_TYPES as readonly string[]).includes(type);
+}
+
+/** Public: active methods with their active zones. */
 deliveryRouter.get(
   "/",
   wrap(async (_req, res) => {
@@ -67,17 +191,35 @@ deliveryRouter.get(
       await prisma.deliveryMethod.findMany({
         where: { active: true },
         orderBy: { position: "asc" },
+        include: {
+          zones: { where: { active: true }, orderBy: { position: "asc" } },
+        },
       })
     );
   })
 );
+
+/** Staff: everything, hidden methods and zones included. */
+deliveryRouter.get(
+  "/admin/all",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json(
+      await prisma.deliveryMethod.findMany({
+        orderBy: { position: "asc" },
+        include: { zones: { orderBy: { position: "asc" } } },
+      })
+    );
+  })
+);
+
 deliveryRouter.post(
   "/",
   requireStaff,
   wrap(async (req, res) => {
     const data = z
       .object({
-        name: z.string(),
+        name: z.string().min(2),
         type: z.enum(["STORE_PICKUP", "DELIVERY", "PARCEL", "PICKUP_MTAANI"]),
         description: z.string().optional(),
         baseCost: z.number().int().nonnegative().default(0),
@@ -86,19 +228,24 @@ deliveryRouter.post(
         config: z.any().optional(),
       })
       .parse(req.body);
-    // enforce the rule: parcel + mtaani are never POD
-    if (data.type === "PARCEL" || data.type === "PICKUP_MTAANI")
-      data.podAllowed = false;
-    res.status(201).json(await prisma.deliveryMethod.create({ data }));
+
+    // Parcel and Mtaani are never pay-on-delivery: the goods leave your hands
+    // before any money does.
+    if (data.type === "PARCEL" || data.type === "PICKUP_MTAANI") data.podAllowed = false;
+
+    res.status(201).json(
+      await prisma.deliveryMethod.create({ data, include: { zones: true } })
+    );
   })
 );
+
 deliveryRouter.patch(
   "/:id",
   requireStaff,
   wrap(async (req, res) => {
     const data = z
       .object({
-        name: z.string().optional(),
+        name: z.string().min(2).optional(),
         description: z.string().optional(),
         baseCost: z.number().int().nonnegative().optional(),
         podAllowed: z.boolean().optional(),
@@ -107,17 +254,134 @@ deliveryRouter.patch(
         config: z.any().optional(),
       })
       .parse(req.body);
+
+    const method = await prisma.deliveryMethod.findUnique({ where: { id: req.params.id } });
+    if (!method) throw new HttpError(404, "Delivery method not found");
+    if (method.type === "PARCEL" || method.type === "PICKUP_MTAANI") data.podAllowed = false;
+
+    res.json(
+      await prisma.deliveryMethod.update({
+        where: { id: method.id },
+        data,
+        include: { zones: { orderBy: { position: "asc" } } },
+      })
+    );
+  })
+);
+
+deliveryRouter.delete(
+  "/:id",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (req, res) => {
     const method = await prisma.deliveryMethod.findUnique({
       where: { id: req.params.id },
+      include: { _count: { select: { orders: true } } },
     });
-    if (
-      method &&
-      (method.type === "PARCEL" || method.type === "PICKUP_MTAANI")
-    )
-      data.podAllowed = false;
-    res.json(
-      await prisma.deliveryMethod.update({ where: { id: req.params.id }, data })
+    if (!method) throw new HttpError(404, "Delivery method not found");
+
+    // Past orders reference it, so hide rather than destroy that history.
+    if (method._count.orders > 0) {
+      await prisma.deliveryMethod.update({
+        where: { id: method.id },
+        data: { active: false },
+      });
+      return res.json({ ok: true, hidden: true });
+    }
+    await prisma.deliveryMethod.delete({ where: { id: method.id } });
+    res.json({ ok: true, deleted: true });
+  })
+);
+
+// ------------------------------------------------------------- delivery zones
+
+const zoneSchema = z.object({
+  name: z.string().min(2),
+  description: z.string().max(300).optional().nullable(),
+  price: z.number().int().nonnegative(),
+  freeAbove: z.number().int().nonnegative().optional().nullable(),
+  active: z.boolean().default(true),
+});
+
+deliveryRouter.post(
+  "/:methodId/zones",
+  requireStaff,
+  wrap(async (req, res) => {
+    const method = await prisma.deliveryMethod.findUnique({ where: { id: req.params.methodId } });
+    if (!method) throw new HttpError(404, "Delivery method not found");
+    if (!supportsZones(method.type))
+      throw new HttpError(
+        400,
+        `${method.name} is a store pickup — customers collect it themselves, so there are no areas to price.`
+      );
+
+    const data = zoneSchema.parse(req.body);
+    const last = await prisma.deliveryZone.findFirst({
+      where: { methodId: method.id },
+      orderBy: { position: "desc" },
+    });
+
+    res.status(201).json(
+      await prisma.deliveryZone.create({
+        data: {
+          ...data,
+          name: data.name.trim(),
+          description: data.description?.trim() || null,
+          freeAbove: data.freeAbove ?? null,
+          methodId: method.id,
+          position: (last?.position ?? -1) + 1,
+        },
+      })
     );
+  })
+);
+
+deliveryRouter.patch(
+  "/zones/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    const data = zoneSchema.partial().parse(req.body);
+    res.json(
+      await prisma.deliveryZone.update({
+        where: { id: req.params.id },
+        data: {
+          ...data,
+          name: data.name?.trim(),
+          description:
+            data.description === undefined ? undefined : data.description?.trim() || null,
+        },
+      })
+    );
+  })
+);
+
+deliveryRouter.post(
+  "/:methodId/zones/reorder",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
+    await prisma.$transaction(
+      ids.map((id, index) => prisma.deliveryZone.update({ where: { id }, data: { position: index } }))
+    );
+    res.json({ ok: true });
+  })
+);
+
+deliveryRouter.delete(
+  "/zones/:id",
+  requireStaff,
+  wrap(async (req, res) => {
+    const zone = await prisma.deliveryZone.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { orders: true } } },
+    });
+    if (!zone) throw new HttpError(404, "Zone not found");
+
+    if (zone._count.orders > 0) {
+      await prisma.deliveryZone.update({ where: { id: zone.id }, data: { active: false } });
+      return res.json({ ok: true, hidden: true });
+    }
+    await prisma.deliveryZone.delete({ where: { id: zone.id } });
+    res.json({ ok: true, deleted: true });
   })
 );
 

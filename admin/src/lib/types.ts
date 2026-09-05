@@ -23,9 +23,24 @@ export interface StaffMember {
 }
 
 export interface Category {
-  id: string; name: string; slug: string;
-  active?: boolean; position?: number;
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  active?: boolean;
+  position?: number;
   _count?: { products: number };
+}
+
+export interface DeliveryZone {
+  id: string;
+  methodId: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  freeAbove?: number | null;
+  active: boolean;
+  position: number;
 }
 
 export interface ProductImage {
@@ -64,6 +79,8 @@ export interface DeliveryMethod {
   type: "STORE_PICKUP" | "DELIVERY" | "PARCEL" | "PICKUP_MTAANI";
   description?: string | null; baseCost: number; podAllowed: boolean;
   active: boolean; position: number;
+  zones?: DeliveryZone[];
+  _count?: { orders: number };
 }
 
 export interface OrderItem {

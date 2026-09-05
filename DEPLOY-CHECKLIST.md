@@ -1,6 +1,6 @@
-# Deploy checklist — Enzi v0.1.9
+# Deploy checklist — Enzi v0.2.0
 
-There **is** a schema change this time (two payment columns), so push it.
+Schema change again (delivery zones, category descriptions), so push it.
 
 ---
 
@@ -10,79 +10,94 @@ There **is** a schema change this time (two payment columns), so push it.
 npm run db:push
 ```
 
-Adds `Payment.providerRef` and `Payment.receiptRef`. Both nullable — existing
-payments and orders are untouched.
+Adds the `DeliveryZone` table, `Order.deliveryZoneId` and
+`Category.description`. All additive — existing methods, orders and categories
+are untouched.
 
-## 2. Redeploy storefront and admin
+## 2. Redeploy admin and storefront
 
-No new Railway variables. Kopo Kopo credentials are entered in the dashboard,
-not in Railway.
+No new Railway variables required.
 
 ---
 
-## 3. Turn on Kopo Kopo (optional)
+## 3. Your API keys get encrypted automatically
 
-M-Pesa keeps working exactly as it does now — skip this section entirely if
-you're happy on Daraja.
+Payment credentials were stored as plain text. They're now encrypted with
+AES-256-GCM before they reach the database, and a startup pass encrypts anything
+already saved. You'll see this in the backend log:
 
-**Admin → Settings → Kopo Kopo:**
+```
+[enzi] Encrypted 4 stored credential(s) at rest.
+```
 
-| Field | Where it comes from |
+Nothing to do — no re-entering keys.
+
+One thing to know: the encryption key is derived from `JWT_SECRET` unless you set
+`SETTINGS_KEY`. **If you ever change `JWT_SECRET`, the saved payment keys stop
+decrypting** and read as unset — the gateway refuses to charge rather than
+sending garbage to Safaricom, and you'd re-enter them in Settings. To decouple
+the two, set `SETTINGS_KEY` to its own random value now, before you have reason
+to rotate anything.
+
+---
+
+## 4. Create your categories
+
+**Admin → Categories** (under Shop in the sidebar). Add the groups customers
+browse by — Mailers, Boxes, Tape, Ribbons. Reorder with the arrows; that's the
+order they appear in the shop menu.
+
+You can also create one without leaving the product form: the category dropdown
+now has **+ New category…** at the bottom, which creates and selects it inline.
+
+Deleting a category leaves its products in the shop, just uncategorised. The
+confirmation tells you how many are affected first.
+
+---
+
+## 5. Set up delivery zones
+
+**Admin → Delivery.** Each method other than store pickup can now have priced
+areas. Open a method and use **Add area**:
+
+| Field | Example |
 |---|---|
-| Till number | Your K2 till |
-| Client ID / Client secret | Kopo Kopo dashboard → API keys |
-| API key | Same page — used to verify webhooks |
-| Callback URL | `https://api.enzipackaging.com/api/payments/kopokopo/callback` |
+| Area name | Nairobi CBD |
+| Note | Same day, delivered by 6pm |
+| Delivery cost | 200 |
+| Free over | 5000 (optional) |
 
-Then:
+Once a method has areas, customers **must** pick one at checkout, and the area's
+price replaces the method's flat fee. A method with no areas keeps charging its
+flat cost exactly as it does now — so nothing breaks until you add zones.
 
-1. Set **Kopo Kopo payments** to On, hit **Test Kopo Kopo connection**.
-2. Register that same callback URL in the **Kopo Kopo dashboard** — the shop
-   can't do this for you, and payments never confirm without it.
-3. **Settings → M-Pesa → Gateway** — switch to Kopo Kopo.
-4. Place one sandbox order end to end before flipping Environment to
-   production.
-
-Do set the **API key**. Without it the webhook still works, but nothing verifies
-that a payment confirmation actually came from Kopo Kopo — anyone who learned
-the URL could mark orders paid. The backend logs a warning on every unverified
-call.
-
-If the gateway you select isn't fully configured, checkout falls back to
-whichever one is, so you can't take the shop offline mid-switch.
+Store pickup can't have zones; the customer comes to you.
 
 ---
 
-## 4. Write a blog post
+## 6. Payments is now one tab
 
-**Admin → Blog → New post.** The editor is full-screen with a live preview.
+**Admin → Settings → Payments.** M-Pesa and Kopo Kopo are combined, because only
+one takes money at a time. The flow is:
 
-- Toolbar buttons insert formatting — no syntax to learn.
-- **Image** uploads a photo straight into the post (resized in your browser
-  first, so a phone photo doesn't take a minute).
-- **Link** prompts for a URL and wraps whatever you've selected.
-- Leave the summary blank and the opening lines are used automatically.
-- Posts save as drafts until you tick **Published**.
+1. Select the provider.
+2. Enter its credentials.
+3. **Test the connection.**
+4. **Make it live.**
 
-Answers in **Admin → FAQs** take the same formatting, so you can link to a
-product page instead of describing where to find it. Use the up/down arrows to
-set the order customers see.
+The button to switch stays disabled until the required credentials are filled in,
+and if the one you pick isn't fully configured checkout falls back to whichever
+is — you can't take the shop offline mid-switch.
 
----
-
-## 5. Have a look at the new navigation
-
-The sidebar is grouped into **Shop / Content / Admin** with icons, and the
-mobile bottom bar now has icons too. Blog and FAQs live under Content.
+The Settings tabs now have icons and sit on a single divider line.
 
 ---
 
 ## Worth checking after deploy
 
-- [ ] Write one test post, publish it, and confirm it renders at
-      `enzipackaging.com/blog` with the images and links working.
-- [ ] Add two or three real FAQs — delivery times, minimum orders, payment
-      methods are the ones customers ask.
-- [ ] Confirm **Settings → M-Pesa → Test M-Pesa connection** still passes.
-- [ ] Place one live order to confirm the gateway you've selected is the one
-      that runs.
+- [ ] Backend log shows the credentials were encrypted.
+- [ ] **Settings → Payments → Test connection** still passes on your live gateway.
+- [ ] Create two or three categories, assign a product to one, and confirm it
+      appears under that heading in the shop.
+- [ ] Add one delivery zone, then place a test order and confirm the fee that
+      appears at checkout matches the order total in the admin.

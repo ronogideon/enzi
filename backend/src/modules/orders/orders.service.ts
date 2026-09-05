@@ -12,6 +12,7 @@ export interface PlaceOrderInput {
   tier?: PricingTier;
   lines: CartLineInput[];
   deliveryMethodId: string;
+  deliveryZoneId?: string;
   deliveryDetails?: Prisma.InputJsonValue;
   customerId?: string; // set when a signed-in customer checks out
 }
@@ -39,6 +40,7 @@ const ORDER_INCLUDE = {
   payments: true,
   customer: true,
   deliveryMethod: true,
+  deliveryZone: true,
   packedBy: { select: { id: true, name: true } },
   events: {
     orderBy: { createdAt: "desc" as const },
@@ -67,8 +69,22 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
 
   const method = await prisma.deliveryMethod.findFirst({
     where: { id: input.deliveryMethodId, active: true },
+    include: { zones: { where: { active: true } } },
   });
   if (!method) throw new HttpError(400, "Delivery method unavailable");
+
+  /**
+   * Zone resolution. A method that has zones must be given one — otherwise a
+   * customer in Kisumu could check out at the Nairobi CBD rate simply by not
+   * choosing an area.
+   */
+  let zone: (typeof method.zones)[number] | null = null;
+  if (method.zones.length > 0) {
+    if (!input.deliveryZoneId)
+      throw new HttpError(400, `Choose a delivery area for ${method.name}`);
+    zone = method.zones.find((z) => z.id === input.deliveryZoneId) ?? null;
+    if (!zone) throw new HttpError(400, "That delivery area is no longer available");
+  }
 
   // PARCEL and PICKUP_MTAANI can never be pay-on-delivery, regardless of flag.
   const podAllowed =
@@ -78,7 +94,12 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // for wholesale, it either qualifies or it doesn't.
   const cart = await priceCart(input.lines);
   const tier = cart.tier;
-  const deliveryFee = method.baseCost;
+
+  // The zone price replaces the method's base cost when one applies, and a
+  // per-zone free-delivery threshold can waive it entirely.
+  let deliveryFee = zone ? zone.price : method.baseCost;
+  if (zone?.freeAbove != null && cart.subtotal >= zone.freeAbove) deliveryFee = 0;
+
   const total = cart.subtotal + deliveryFee;
 
   // Refuse to sell what isn't there, rather than going negative on stock.
@@ -119,6 +140,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         deliveryFee,
         total,
         deliveryMethodId: method.id,
+        deliveryZoneId: zone?.id ?? null,
         isPayOnDelivery: podAllowed,
         deliveryDetails: input.deliveryDetails,
         placedAt: new Date(),

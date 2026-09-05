@@ -5,6 +5,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Orders from "@/pages/Orders";
 import Products from "@/pages/Products";
+import Categories from "@/pages/Categories";
 import Stock from "@/pages/Stock";
 import Promotions from "@/pages/Promotions";
 import Customers from "@/pages/Customers";
@@ -33,6 +34,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={["SUPERADMIN", "ADMIN", "STAFF"]}>
               <Products />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/categories"
+          element={
+            <ProtectedRoute roles={["SUPERADMIN", "ADMIN", "STAFF"]}>
+              <Categories />
             </ProtectedRoute>
           }
         />

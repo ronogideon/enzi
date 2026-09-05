@@ -29,6 +29,16 @@ export interface Product {
   effectivePrice?: number;
   effectiveWholesalePrice?: number | null;
 }
+export interface DeliveryZone {
+  id: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  freeAbove?: number | null;
+  active?: boolean;
+  position?: number;
+}
+
 export interface DeliveryMethod {
   id: string;
   name: string;
@@ -36,6 +46,7 @@ export interface DeliveryMethod {
   description?: string | null;
   baseCost: number;
   podAllowed: boolean;
+  zones?: DeliveryZone[];
 }
 export interface PricedLine {
   productId: string;

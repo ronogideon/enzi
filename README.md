@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.1.9 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.2.0 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -295,11 +295,44 @@ one, so it survives Railway's production prune).
 
 ---
 
+## Credentials are encrypted at rest
+
+Payment API keys used to sit in the `Setting` table as plain text. Anyone with a
+read of that table — a leaked backup, a misconfigured `DATABASE_URL`, someone
+running a support query — could take the shop's M-Pesa and Kopo Kopo keys and
+move real money.
+
+They're now encrypted with **AES-256-GCM** before they ever reach Postgres
+(`backend/src/lib/crypto.ts`). GCM means the ciphertext is authenticated, so a
+tampered value fails to decrypt rather than silently producing garbage that gets
+sent to Safaricom. A database dump on its own is no longer enough — an attacker
+also needs the key, which lives in the environment.
+
+The key comes from `SETTINGS_KEY` if set, otherwise it's derived from
+`JWT_SECRET` via scrypt. Deriving is deliberate: an existing deployment starts
+encrypting the moment it updates, with no new variable to set. Set
+`SETTINGS_KEY` explicitly if you ever want to rotate `JWT_SECRET` independently
+of the stored credentials.
+
+**Nothing needs migrating by hand.** Values stored before this change are still
+plain text and still work; a startup pass encrypts them in place, and the reader
+returns anything not in our format unchanged. If a key ever can't be decrypted,
+it reads as "not configured" — the gateway refuses to charge and the Settings
+page shows it as unset, which is the safe failure. Secrets are still never
+returned to the browser in full.
+
+---
+
 ## Payment gateways
 
-Two options, chosen in **Settings → M-Pesa → Gateway**. Customers see the same
-M-PESA prompt either way; the difference is who you hold the merchant
-relationship with.
+Two options, chosen in **Settings → Payments**. Only one processes money at a
+time, so it's presented as a choice rather than two parallel forms — pick the
+provider, enter its keys, test the connection, then make it live. Showing both
+side by side invited the failure mode of half-configuring one while the other
+was silently in use.
+
+Customers see the same M-PESA prompt either way; the difference is who you hold
+the merchant relationship with.
 
 | | M-Pesa (Daraja) | Kopo Kopo |
 |---|---|---|
@@ -333,6 +366,45 @@ one is. A half-finished switch can't take the shop offline.
 
 `Payment` gained `providerRef` and `receiptRef` so a second gateway doesn't have
 to masquerade as Daraja in the M-Pesa-named columns.
+
+---
+
+## Delivery zones
+
+A single flat fee per method never survived contact with reality: riding to
+Kilimani and couriering to Kisumu cost very different amounts, so the shop had to
+either lose money on far orders or overcharge near ones.
+
+Each delivery method can now carry **priced areas** — "Nairobi CBD", "Westlands",
+"Upcountry" — with an optional per-zone free-delivery threshold. Store pickup
+never has zones, and the API enforces that rather than leaving it to the UI.
+
+A method with zones **requires** one at checkout. Otherwise someone upcountry
+could check out at the CBD rate simply by not choosing an area. The server
+recalculates the fee at order time from the zone actually chosen; the storefront
+figure is only so the customer sees the right number before committing. Orders
+record which zone priced them (`Order.deliveryZoneId`), so a later price change
+doesn't rewrite history.
+
+A method with no zones falls back to its flat `baseCost`, so existing setups keep
+working untouched.
+
+---
+
+## Categories
+
+These were creatable through the API but had no screen, so in practice there was
+no way to make one — every product ended up uncategorised and the storefront's
+category navigation was empty. There's now a Categories page (create, rename,
+describe, reorder, hide, delete).
+
+Deleting a category leaves its products in the shop, just uncategorised, and the
+confirmation says how many are affected before it happens.
+
+The product form also has **+ New category…** in its dropdown, which creates and
+selects one inline. Realising you need a category happens mid-way through adding
+a product, and losing a half-filled form to go and make one is precisely why
+things end up uncategorised.
 
 ---
 
