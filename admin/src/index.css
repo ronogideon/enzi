@@ -11,8 +11,23 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
   body {
     @apply bg-ink text-cloud font-sans antialiased;
+  }
+
+  /* iOS zooms the page when a focused input is under 16px. Keeping form text
+     at 16px on small screens stops the whole layout jumping on every tap. */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
   }
   :focus-visible {
     outline: 2px solid #5b6cf0;
@@ -24,8 +39,13 @@
 @layer components {
   .card { @apply rounded-2xl border border-ink-line bg-ink-card; }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2
-      text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+      text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50;
+    transition: transform 160ms var(--ease-out), background-color 180ms ease,
+      border-color 180ms ease, color 180ms ease;
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .btn-primary { @apply btn bg-white text-ink hover:bg-white/90; }
   .btn-ghost { @apply btn border border-ink-line text-cloud hover:bg-ink-hover; }
@@ -37,4 +57,35 @@
   .label { @apply mb-1.5 block text-xs font-medium text-muted; }
   .th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-faint; }
   .td { @apply px-4 py-3 text-sm text-cloud; }
+
+  /* Mobile record card — the stand-in for a table row on small screens. */
+  .rec { @apply card p-4; }
+  .rec-row { @apply flex items-center justify-between gap-3 py-1 text-sm; }
+  .rec-key { @apply shrink-0 text-xs uppercase tracking-wider text-faint; }
+}
+
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Slides up from the bottom on mobile; the sm breakpoint overrides it to a
+   gentle scale so a desktop dialog doesn't fly in from off-screen. */
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (min-width: 640px) {
+  @keyframes modal-in {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

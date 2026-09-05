@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Product, Tier } from "./types";
+import type { Product } from "./types";
 
 export interface CartItem {
   productId: string;
@@ -22,13 +22,11 @@ export interface CartItem {
 
 interface CartState {
   items: CartItem[];
-  tier: Tier;
   count: number;
   add: (product: Product, qty?: number) => void;
   setQty: (productId: string, qty: number) => void;
   remove: (productId: string) => void;
   clear: () => void;
-  setTier: (tier: Tier) => void;
 }
 
 const CartContext = createContext<CartState | null>(null);
@@ -36,7 +34,6 @@ const STORAGE_KEY = "enzi.cart.v1";
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
-  const [tier, setTier] = useState<Tier>("RETAIL");
   const [hydrated, setHydrated] = useState(false);
 
   // hydrate from localStorage once on mount
@@ -46,7 +43,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (raw) {
         const parsed = JSON.parse(raw);
         setItems(parsed.items ?? []);
-        setTier(parsed.tier ?? "RETAIL");
       }
     } catch {
       /* ignore */
@@ -57,8 +53,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // persist
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, tier }));
-  }, [items, tier, hydrated]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ items }));
+  }, [items, hydrated]);
 
   function add(product: Product, qty?: number) {
     const minQty = product.retailMinQty ?? 1;
@@ -104,16 +100,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [items]
   );
 
-  const value: CartState = {
-    items,
-    tier,
-    count,
-    add,
-    setQty,
-    remove,
-    clear,
-    setTier,
-  };
+  const value: CartState = { items, count, add, setQty, remove, clear };
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 

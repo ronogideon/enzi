@@ -27,6 +27,7 @@ export interface Product {
   featured: boolean;
   images: ProductImage[];
   effectivePrice?: number;
+  effectiveWholesalePrice?: number | null;
 }
 export interface DeliveryMethod {
   id: string;
@@ -45,8 +46,12 @@ export interface PricedLine {
   unitPrice: number;
   lineTotal: number;
   tier: Tier;
+  wholesaleMinQty: number | null;
+  retailUnitPrice: number;
+  wholesaleSaving: number;
 }
 export interface PricedCart {
+  wholesaleSaving: number;
   tier: Tier;
   lines: PricedLine[];
   subtotal: number;

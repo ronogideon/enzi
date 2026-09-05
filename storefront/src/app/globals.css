@@ -5,6 +5,15 @@
 @layer base {
   :root {
     --shadow-glow: 0 0 40px rgba(255, 255, 255, 0.10);
+
+    /* The stock CSS easings are too weak to read as intentional. These are the
+       stronger variants: ease-out for anything entering or responding to a
+       click, ease-in-out for things moving on screen. ease-in is deliberately
+       absent — it delays the first frame, which is the exact moment someone is
+       watching, and makes the whole interface feel sluggish. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   html {
@@ -56,10 +65,33 @@
     @apply transition-colors duration-200 hover:bg-ink-hover;
   }
 
+  /* Lift on hover, gated behind a real pointer: touch devices fire :hover on
+     tap, which leaves a card stuck in its hover state after you navigate. */
+  .lift {
+    transition: transform 240ms var(--ease-out), border-color 240ms ease,
+      background-color 240ms ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .lift:hover {
+      transform: translateY(-3px);
+    }
+  }
+  .lift:active {
+    transform: translateY(0) scale(0.995);
+    transition-duration: 120ms;
+  }
+
+  /* Every pressable thing scales down a touch on press. It is the cheapest
+     possible way to make an interface feel like it heard you. */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3
-      text-sm font-semibold transition-colors duration-200
+      text-sm font-semibold
       disabled:cursor-not-allowed disabled:opacity-50;
+    transition: transform 160ms var(--ease-out), background-color 200ms ease,
+      border-color 200ms ease, color 200ms ease, opacity 200ms ease;
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .btn-primary {
     @apply btn bg-white text-ink hover:bg-white/90;
@@ -85,5 +117,136 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+   Entrances only, all under 300ms, all ease-out. Nothing here loops, nothing
+   blocks interaction, and everything is decoration that can be dropped whole
+   under prefers-reduced-motion.
+   ------------------------------------------------------------------------- */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Never scale from 0 — nothing in the real world appears out of nothing. */
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes confetti-fly {
+  from {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--cx), var(--cy)) rotate(var(--cr));
+  }
+}
+
+@keyframes shimmer {
+  to { background-position: 200% 0; }
+}
+
+.animate-rise {
+  animation: rise 460ms var(--ease-out) both;
+}
+.animate-fade {
+  animation: fade 400ms var(--ease-out) both;
+}
+.animate-pop {
+  animation: pop 220ms var(--ease-out) both;
+}
+
+/* Stagger for grids and lists. Delays stay short — past about 300ms total the
+   page stops feeling considered and starts feeling slow. */
+.stagger > * {
+  animation: rise 460ms var(--ease-out) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 45ms; }
+.stagger > *:nth-child(3) { animation-delay: 90ms; }
+.stagger > *:nth-child(4) { animation-delay: 135ms; }
+.stagger > *:nth-child(5) { animation-delay: 180ms; }
+.stagger > *:nth-child(6) { animation-delay: 215ms; }
+.stagger > *:nth-child(7) { animation-delay: 250ms; }
+.stagger > *:nth-child(8) { animation-delay: 280ms; }
+.stagger > *:nth-child(n + 9) { animation-delay: 300ms; }
+
+/* Images fade in as they decode, so a slow connection shows a soft arrival
+   rather than a hard pop of a half-painted photo. */
+.img-in {
+  opacity: 0;
+  transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out);
+  transform: scale(1.015);
+}
+.img-in[data-loaded="true"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Zoom the photo, not the frame, on hover. */
+.zoom-frame {
+  overflow: hidden;
+}
+.zoom-frame img {
+  transition: transform 600ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .zoom-frame:hover img {
+    transform: scale(1.04);
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep opacity — it aids comprehension — and drop the movement. */
+  .animate-rise,
+  .animate-fade,
+  .animate-pop,
+  .stagger > * {
+    animation: fade 200ms ease both !important;
+  }
+  .img-in {
+    transform: none;
+  }
+  .lift:hover,
+  .zoom-frame:hover img {
+    transform: none;
+  }
+  .skeleton {
+    animation: none;
   }
 }

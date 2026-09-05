@@ -1,128 +1,72 @@
-# Deploy checklist — Enzi v0.4.2
+# Deploy checklist — Enzi v0.5.0
 
-Backend is confirmed healthy at `api.enzipackaging.com`. This drop fixes the
-storefront's API address, which was compiled into the build and therefore
-unfixable from Railway variables.
-
----
-
-## 1. Storefront service — replace the variable
-
-**Remove:**
-
-```
-NEXT_PUBLIC_API_URL
-```
-
-**Add:**
-
-```
-API_URL  = https://api.enzipackaging.com
-WHATSAPP = 254110050620
-```
-
-`API_URL` is now read at runtime, so from this deploy onward you can change it
-and just restart — no rebuild.
-
-Two rules for the value:
-
-- **Include `https://`.** A bare hostname isn't an absolute URL, so the browser
-  treats it as a relative path and sends every call back to the storefront. That
-  is exactly what produced `enzi-production.up.railway.app/api/auth/customer/login`
-  with no scheme in front of it. The code now adds a missing scheme, but be
-  explicit.
-- **Don't use Railway's `${{service.RAILWAY_PUBLIC_DOMAIN}}` reference.** It
-  resolves to a bare host with no scheme — the same trap.
-
-The trailing `/api` is added for you.
-
-## 2. Redeploy the storefront, then read the log
-
-You should see:
-
-```
-[storefront] API_URL = https://api.enzipackaging.com/api
-[storefront] API reachable (v0.4.1, database: ok)
-```
-
-If instead you get the boxed `API_URL IS NOT SET` warning, or a
-`could not reach` line, the variable is wrong and the log says how.
-
-## 3. Verify in the browser
-
-Open the shop and check the console:
-
-```js
-window.__ENV__
-// { API_URL: "https://api.enzipackaging.com/api", WHATSAPP: "254110050620" }
-```
-
-That value now comes from the server on each request. If it's wrong, fix the
-variable and restart — you no longer need a rebuild to change it.
-
-Then try signup. Product images loading is the other good signal, since those
-are served from the API too.
-
-## 4. Admin service — when you add the custom domain
-
-`API_URL` stays as it is:
-
-```
-API_URL = https://api.enzipackaging.com
-```
-
-Nothing to change. Point `dashboard.enzipackaging.com` at the admin service and
-it keeps working.
-
-## 5. Backend — leave CORS open
-
-```
-CORS_ORIGINS = (blank)
-```
-
-Blank reflects any origin, which is safe here because auth is a Bearer token in
-a header, not a cookie. You're currently serving from six origins (three custom
-domains plus three Railway ones); an allow-list that misses any of them fails
-only on that origin, which is a miserable thing to debug.
-
-Also update in the admin, **Settings → Payments**:
-
-```
-Callback URL = https://api.enzipackaging.com/api/payments/mpesa/callback
-```
-
-Then hit **Test M-Pesa connection**.
+No new Railway variables. The schema is unchanged, so no `db:push` needed
+either — just redeploy all three services.
 
 ---
 
-## Then work through the shop
+## 1. Redeploy backend, storefront, admin
 
-- [ ] **Settings → My account** — change the default password if you haven't.
-- [ ] **Staff accounts** — add your employees. Packers get **STAFF**: orders,
-      packing and stock, but not your payment keys.
-- [ ] **Products** — upload real photos, confirm they appear on the storefront.
-- [ ] **Storefront** — register an account, place a test order end to end.
-- [ ] **Orders → To pack** — start packing → packed → shipped, and check your
-      name lands in the history sidebar.
+The pricing change lives in the backend, so deploy it first (or together).
+Nothing else to configure.
+
+## 2. Check the toggle
+
+Admin → Products. The white knob should now sit **inside** the green pill and
+slide to the left end when off. It was escaping the track because it had no
+horizontal anchor and fell back to the button's centred text position.
+
+## 3. Check wholesale on a product
+
+Open any product with a wholesale price set:
+
+- Below the threshold: retail price, and a line reading
+  **"Wholesale minimum: ## pcs — save Ksh X each"**.
+- Raise the quantity past it: the price changes in place, the line turns green
+  and reads **"applied"**, and a toast fires with confetti —
+  **"Wholesale discount applied"**, 2 seconds.
+- The cart then shows total wholesale savings.
+
+There is no tier selector anywhere any more. It's gone from the cart and from
+checkout, because the quantity decides it.
+
+If a product has no wholesale price, none of this shows. Set one in
+**Products → Edit → Wholesale price** and **Wholesale minimum quantity**.
+
+## 4. Check the admin on your phone
+
+Open `dashboard.enzipackaging.com` (or the Railway URL) on a phone:
+
+- Hamburger top-left opens a slide-in drawer with every section.
+- Bottom bar has Home / Orders / Products / Stock.
+- Products, Orders, Staff and Customers are cards, not tables.
+- Tapping "Add product" opens a bottom sheet you can scroll.
+
+## 5. Check the product page on desktop
+
+The photo is now height-capped at 58vh, so the price and the add-to-cart button
+sit above the fold instead of below a full-width square. Thumbnails scroll
+horizontally under it and switch the main image; arrow keys work too.
 
 ---
 
-## If something still fails
+## What to look at while you're in there
 
-The frontends now name the problem rather than making you infer it:
+- [ ] Set a **wholesale price and minimum** on your real products — the whole
+      feature is invisible until those two fields are filled in.
+- [ ] **Settings → Payments** — confirm the callback URL is
+      `https://api.enzipackaging.com/api/payments/mpesa/callback` and hit
+      **Test M-Pesa connection**.
+- [ ] Place one test order end to end, crossing the wholesale threshold, and
+      confirm the order total in the admin matches what the shop quoted.
 
-| Message | Cause |
-|---|---|
-| "Can't reach the API" | `API_URL` wrong, or backend down |
-| "pointed at its own web address" | `API_URL` is the storefront's own domain |
-| "The database has no tables yet" | Run `npm run db:push` on the backend |
-| "No staff account exists yet" | Restart the backend; it creates one and logs it |
-| "Invalid email or password" | The account exists — this really is the password |
+---
 
-Backend shell commands:
+## A note on the animations
 
-```bash
-npm run whoami        # which staff accounts exist (no hashes printed)
-ADMIN_EMAIL=you@enzipackaging.co.ke \
-  ADMIN_PASSWORD='choose-something-strong' npm run reset-admin
-```
+Everything added is an entrance or a press response, all under 300ms, and all
+of it collapses to a plain fade under `prefers-reduced-motion`. Nothing loops,
+nothing blocks a tap, and no animation sits between you and an action. If any
+of it feels like too much on your hardware, the whole layer is in
+`storefront/src/app/globals.css` under the "Motion" heading and can be tuned in
+one place.

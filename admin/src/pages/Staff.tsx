@@ -94,7 +94,55 @@ export default function Staff() {
       ) : list.error ? (
         <EmptyState title="Couldn't load staff" hint={list.error} />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        <div className="space-y-3 md:hidden">
+          {(list.data ?? []).map((m) => {
+            const isMe = m.id === me?.id;
+            return (
+              <div key={m.id} className="rec">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-white">
+                      {m.name}
+                      {isMe && <span className="ml-2 text-xs text-faint">(you)</span>}
+                    </p>
+                    <p className="truncate text-xs text-faint">{m.email}</p>
+                  </div>
+                  <Badge tone={m.role === "SUPERADMIN" ? "indigo" : "muted"}>
+                    {ROLE_INFO[m.role]?.label ?? m.role}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-ink-line pt-3">
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <Toggle
+                      checked={m.active}
+                      disabled={isMe}
+                      onChange={(v) => setActive(m, v)}
+                      label="Active"
+                    />
+                    {m.active ? "Active" : "Disabled"}
+                  </label>
+                  <span className="text-xs text-faint">
+                    {m._count?.packedOrders ?? 0} packed
+                  </span>
+                </div>
+
+                <div className="mt-3 flex gap-2">
+                  <button className="btn-ghost flex-1 text-xs" onClick={() => setEditing(m)}>Edit</button>
+                  <button className="btn-ghost flex-1 text-xs" onClick={() => setResetting(m)}>
+                    Reset password
+                  </button>
+                  {!isMe && (
+                    <button className="btn-danger text-xs" onClick={() => remove(m)}>Remove</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px]">
             <thead className="border-b border-ink-line">
               <tr>
@@ -164,6 +212,7 @@ export default function Staff() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

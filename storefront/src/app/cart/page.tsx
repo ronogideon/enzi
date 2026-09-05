@@ -9,11 +9,12 @@ import { SmartImage } from "@/components/ui";
 import type { PricedCart } from "@/lib/types";
 
 export default function CartPage() {
-  const { items, tier, setTier, setQty, remove } = useCart();
+  const { items, setQty, remove } = useCart();
   const [priced, setPriced] = useState<PricedCart | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // re-price whenever items or tier change so the cart shows the true totals
+  // Re-price whenever the items change. The server decides retail vs wholesale
+  // per line from the quantity, so there is nothing for the shopper to choose.
   useEffect(() => {
     if (items.length === 0) {
       setPriced(null);
@@ -22,17 +23,14 @@ export default function CartPage() {
     let cancelled = false;
     setLoading(true);
     api
-      .priceCart(
-        items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-        tier
-      )
+      .priceCart(items.map((i) => ({ productId: i.productId, quantity: i.quantity })))
       .then((res) => !cancelled && setPriced(res))
       .catch(() => !cancelled && setPriced(null))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [items, tier]);
+  }, [items]);
 
   if (items.length === 0) {
     return (
@@ -55,34 +53,30 @@ export default function CartPage() {
 
   return (
     <div className="shell py-12">
-      <div className="mb-8 flex items-end justify-between">
-        <h1 className="display text-3xl md:text-4xl">Your cart</h1>
-        {/* tier toggle */}
-        <div className="flex rounded-full border border-ink-line p-1 text-sm">
-          {(["RETAIL", "WHOLESALE"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTier(t)}
-              className={`rounded-full px-4 py-1.5 capitalize transition-colors ${
-                tier === t ? "bg-white text-ink" : "text-muted hover:text-cloud"
-              }`}
-            >
-              {t.toLowerCase()}
-            </button>
-          ))}
-        </div>
+      <div className="mb-8">
+        <h1 className="display animate-rise text-3xl md:text-4xl">Your cart</h1>
       </div>
 
       {bumped.length > 0 && (
-        <div className="mb-6 rounded-xl border border-gold/30 bg-gold/10 px-4 py-3 text-sm text-gold">
+        <div className="animate-rise mb-4 rounded-xl border border-gold/30 bg-gold/10 px-4 py-3 text-sm text-gold">
           Quantities raised to the minimum order for:{" "}
           {bumped.map((b) => b.name).join(", ")}.
         </div>
       )}
 
+      {/* Wholesale is applied automatically, so say so — otherwise a lower
+          price than expected just looks like a bug. */}
+      {(priced?.wholesaleSaving ?? 0) > 0 && (
+        <div className="animate-rise mb-6 rounded-xl border border-whatsapp/30 bg-whatsapp/10 px-4 py-3 text-sm text-whatsapp">
+          Wholesale pricing applied — you're saving{" "}
+          <span className="font-semibold">{formatKes(priced!.wholesaleSaving)}</span> on
+          this order.
+        </div>
+      )}
+
       <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
         {/* lines */}
-        <div className="space-y-4">
+        <div className="stagger space-y-4">
           {items.map((item) => {
             const line = priced?.lines.find((l) => l.productId === item.productId);
             const unit = line?.unitPrice ?? item.unitPrice;

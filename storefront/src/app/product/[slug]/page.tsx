@@ -56,7 +56,7 @@ export default async function ProductPage({
         <span className="text-muted">{product.name}</span>
       </nav>
 
-      <div className="grid gap-12 lg:grid-cols-2">
+      <div className="grid animate-rise gap-10 lg:grid-cols-2 lg:items-start lg:gap-14">
         {/* gallery */}
         <ProductGallery images={product.images ?? []} name={product.name} />
 
@@ -67,30 +67,20 @@ export default async function ProductPage({
           )}
           <h1 className="display mt-3 text-3xl md:text-4xl">{product.name}</h1>
 
-          <div className="mt-4 flex items-baseline gap-3">
-            <span className="text-3xl font-bold text-white">
-              {formatKes(effective)}
-            </span>
-            {onSale && (
-              <span className="text-lg text-faint line-through">
-                {formatKes(base)}
-              </span>
-            )}
-            {onSale && (
-              <span className="rounded-full bg-gold px-2.5 py-1 text-xs font-bold text-ink">
-                Sale
-              </span>
-            )}
-          </div>
-
-          <p className="mt-2 text-sm text-muted">
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 text-sm text-muted">
             {product.stockQty > 0 ? (
               <span className="text-whatsapp">In stock</span>
             ) : (
               <span className="text-faint">Currently out of stock</span>
             )}
-            {product.wholesalePrice && (
-              <> · Wholesale from {formatKes(product.wholesalePrice)}</>
+            {onSale && (
+              <>
+                <span aria-hidden>·</span>
+                <span className="rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-ink">
+                  Sale
+                </span>
+                <span className="text-faint line-through">{formatKes(base)}</span>
+              </>
             )}
           </p>
 
@@ -108,7 +98,7 @@ export default async function ProductPage({
       {related.length > 0 && (
         <section className="mt-24">
           <h2 className="display mb-8 text-2xl md:text-3xl">You may also like</h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="stagger grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {related.slice(0, 4).map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}

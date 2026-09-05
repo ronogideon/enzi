@@ -65,7 +65,6 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const phone = normalizePhone(input.phone);
   if (!isValidKePhone(phone)) throw new HttpError(400, "Invalid Kenyan phone number");
 
-  const tier = input.tier ?? "RETAIL";
   const method = await prisma.deliveryMethod.findFirst({
     where: { id: input.deliveryMethodId, active: true },
   });
@@ -75,7 +74,10 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const podAllowed =
     method.podAllowed && method.type !== "PARCEL" && method.type !== "PICKUP_MTAANI";
 
-  const cart = await priceCart(input.lines, tier);
+  // Tier is derived from quantities inside priceCart — the client can't ask
+  // for wholesale, it either qualifies or it doesn't.
+  const cart = await priceCart(input.lines);
+  const tier = cart.tier;
   const deliveryFee = method.baseCost;
   const total = cart.subtotal + deliveryFee;
 

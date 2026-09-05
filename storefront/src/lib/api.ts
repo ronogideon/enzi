@@ -252,8 +252,10 @@ export const api = {
     post<{ taken: boolean }>("/auth/customer/check-email", { email }),
 
   // ---- checkout ----
-  priceCart: (lines: { productId: string; quantity: number }[], tier: Tier) =>
-    post<PricedCart>("/orders/price", { lines, tier }),
+  // No tier argument: the server derives retail vs wholesale per line from the
+  // quantity, so the client can't ask for a price it hasn't earned.
+  priceCart: (lines: { productId: string; quantity: number }[]) =>
+    post<PricedCart>("/orders/price", { lines }),
   placeOrder: (payload: unknown) =>
     post<{ order: Order; requiresPayment: boolean }>("/orders", payload),
   initiateStk: (orderId: string, phone: string) =>

@@ -163,7 +163,7 @@ export default async function ShopPage({
               </Link>
             </div>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="stagger grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
               {list.map((p) => (
                 <ProductCard key={p.id} product={p} />
               ))}

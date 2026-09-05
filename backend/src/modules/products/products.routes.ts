@@ -69,11 +69,18 @@ productsRouter.get(
       orderBy: { createdAt: "desc" },
     });
 
-    const t = tier === "WHOLESALE" ? "WHOLESALE" : "RETAIL";
+    // Both prices go out regardless of the requested tier: wholesale is applied
+    // automatically by quantity, so the storefront needs to show the threshold
+    // and the bulk rate on every card without asking who the buyer is.
+    void tier;
     res.json(
       products.map((p) => ({
         ...p,
-        effectivePrice: effectiveUnitPrice(p, t, p.promotions),
+        effectivePrice: effectiveUnitPrice(p, "RETAIL", p.promotions),
+        effectiveWholesalePrice:
+          p.wholesalePrice == null
+            ? null
+            : effectiveUnitPrice(p, "WHOLESALE", p.promotions),
       }))
     );
   })

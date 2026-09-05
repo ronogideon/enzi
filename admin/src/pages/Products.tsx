@@ -130,7 +130,65 @@ export default function Products() {
           }
         />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile: one card per product. A 9-column table on a 390px screen is
+            a horizontal scrollbar and a guessing game. */}
+        <div className="space-y-3 md:hidden">
+          {visible.map((p) => (
+            <div key={p.id} className={`rec ${busyId === p.id ? "opacity-50" : ""}`}>
+              <div className="flex gap-3">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-ink-line bg-ink-800">
+                  {p.images?.[0] ? (
+                    <img src={mediaUrl(p.images[0].url)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-xs text-faint">—</div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-white">{p.name}</p>
+                  <p className="text-xs text-faint">
+                    {p.category?.name ?? "No category"} · {p.images?.length ?? 0} photo
+                    {p.images?.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-cloud">{formatKes(p.retailPrice)}</span>
+                    {p.wholesalePrice ? (
+                      <span className="text-xs text-faint">
+                        wholesale {formatKes(p.wholesalePrice)}
+                      </span>
+                    ) : null}
+                    <Badge tone={p.stockQty <= 0 ? "danger" : p.stockQty <= 10 ? "gold" : "muted"}>
+                      {p.stockQty} in stock
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-4 border-t border-ink-line pt-3">
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <Toggle checked={p.active} onChange={(v) => toggleField(p, "active", v)} label="In shop" />
+                  In shop
+                </label>
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <Toggle checked={p.featured} onChange={(v) => toggleField(p, "featured", v)} label="Featured" />
+                  Featured
+                </label>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <button className="btn-ghost flex-1 text-xs" onClick={() => setEditing(p)}>Edit</button>
+                <button className="btn-ghost text-xs" onClick={() => run(p.id, () => api.duplicateProduct(p.id))}>
+                  Duplicate
+                </button>
+                {can(["SUPERADMIN", "ADMIN"]) && (
+                  <button className="btn-danger text-xs" onClick={() => remove(p)}>Delete</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full min-w-[880px]">
             <thead className="border-b border-ink-line">
               <tr>
@@ -223,6 +281,7 @@ export default function Products() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {(creating || editing) && (

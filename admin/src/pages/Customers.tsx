@@ -73,7 +73,38 @@ export default function Customers() {
       ) : customers.data!.length === 0 ? (
         <EmptyState title="No customers found" />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        <div className="space-y-3 md:hidden">
+          {customers.data!.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelected(c.id)}
+              className="rec w-full text-left transition-colors active:bg-ink-hover"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-white">{c.name ?? "—"}</p>
+                  <p className="text-xs text-muted">+{c.phone}</p>
+                  {c.email && <p className="truncate text-xs text-faint">{c.email}</p>}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm text-cloud">{formatKes(c.totalSpent)}</p>
+                  <p className="text-xs text-faint">
+                    {c.orderCount} order{c.orderCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+              {(c.hasAccount || c.tags.length > 0) && (
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {c.hasAccount && <Badge tone="muted">has account</Badge>}
+                  {c.tags.slice(0, 3).map((t) => <Badge key={t}>{t}</Badge>)}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full min-w-[720px]">
             <thead className="border-b border-ink-line">
               <tr>
@@ -122,6 +153,7 @@ export default function Customers() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {selected && (

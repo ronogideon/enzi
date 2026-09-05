@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { imageUrl } from "@/lib/api";
 
 /**
@@ -39,8 +41,38 @@ export function SmartImage({
   // Uploaded photos are stored as "/api/media/<id>" — a path relative to the
   // API, not to the storefront — so resolve it against the API host here. Doing
   // it in one place means every gallery, card and cart row gets it for free.
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={imageUrl(src)} alt={alt} className={className} loading="lazy" />;
+  return <FadeInImage src={imageUrl(src)} alt={alt} className={className} />;
+}
+
+/**
+ * Fades a photo in once it has decoded. Without this, images pop in at full
+ * opacity mid-scroll, which reads as jank on a slow connection.
+ */
+function FadeInImage({
+  src, alt, className,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      data-loaded={loaded}
+      onLoad={() => setLoaded(true)}
+      // A cached image can finish loading before React attaches onLoad, so
+      // catch that case on mount — otherwise it would sit invisible forever.
+      ref={(el) => {
+        if (el?.complete) setLoaded(true);
+      }}
+      className={`img-in ${className}`}
+    />
+  );
 }
 
 export function StarRating({

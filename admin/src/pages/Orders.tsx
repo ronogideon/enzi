@@ -133,7 +133,51 @@ export default function Orders() {
           }
         />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile: order cards. This is the screen staff use standing at the
+            bench, so the tap target is the whole card. */}
+        <div className="space-y-3 md:hidden">
+          {(orders.data ?? []).map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setSelectedId(o.id)}
+              className="rec w-full text-left transition-colors active:bg-ink-hover"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-white">{o.orderNumber}</p>
+                  <p className="truncate text-xs text-faint">
+                    {o.customer?.name ?? "—"} · {o.customer?.phone}
+                  </p>
+                </div>
+                <span className="shrink-0 font-medium text-cloud">{formatKes(o.total)}</span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge tone={statusTone(o.status)}>
+                  {STATUS_LABEL[o.status] ?? o.status.toLowerCase()}
+                </Badge>
+                {o.isPaid ? (
+                  <Badge tone="green">paid</Badge>
+                ) : o.isPayOnDelivery ? (
+                  <Badge tone="gold">on delivery</Badge>
+                ) : (
+                  <Badge tone="muted">unpaid</Badge>
+                )}
+                <span className="text-xs text-faint">
+                  {o.items.length} item{o.items.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              <p className="mt-2 text-xs text-faint">
+                {o.deliveryMethod?.name ?? "—"} · {new Date(o.createdAt).toLocaleDateString()}
+                {o.packedBy && ` · packed by ${o.packedBy.name}`}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full min-w-[860px]">
             <thead className="border-b border-ink-line">
               <tr>
@@ -197,6 +241,7 @@ export default function Orders() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {selectedId && (
@@ -328,7 +373,7 @@ function OrderModal({
                 This order is finished — nothing left to do.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 sm:flex sm:flex-wrap">
                 {nexts.map((n) => (
                   <button
                     key={n}

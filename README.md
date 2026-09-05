@@ -1,6 +1,6 @@
 # Enzi Packaging — commerce platform
 
-v0.4.2 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
+v0.5.0 · Node/Express/TypeScript/Prisma/Postgres, deployed on Railway.
 
 | Service | Stack | Root Directory | Purpose |
 |---|---|---|---|
@@ -295,6 +295,85 @@ one, so it survives Railway's production prune).
 
 ---
 
+## Wholesale is automatic
+
+There is no tier selector anywhere in the shop — not on the cart, not at
+checkout, not on a product page. Wholesale is decided by quantity:
+
+> if a product has a wholesale price and you order at least its wholesale
+> minimum, you get that price.
+
+Two consequences worth knowing:
+
+- **It's decided per line, not per cart.** A big order of mailers and two rolls
+  of tape prices each correctly, instead of forcing one tier across both.
+- **The client can't ask for it.** `POST /orders/price` and `POST /orders` no
+  longer accept a meaningful `tier`; the server derives it. Previously a crafted
+  request could buy a single unit at the bulk rate.
+
+The product page states the threshold plainly next to the minimum order
+quantity ("Wholesale minimum: 50 pcs"), the price updates live as the quantity
+crosses it, and the crossing is confirmed with a 2-second toast and a confetti
+burst. When someone is within a short reach of the threshold, a single button
+offers to close the gap. The cart shows total wholesale savings, because a price
+lower than expected otherwise just looks like a bug.
+
+---
+
+## Motion
+
+Animations follow one rule: every one has a purpose, and none of them are
+decoration for its own sake.
+
+- **Custom easing.** `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` for anything
+  entering or responding to a click; `--ease-drawer` for the admin drawer. The
+  built-in CSS easings are too weak to read as deliberate. `ease-in` is used
+  nowhere — it delays the first frame, which is exactly when someone is looking.
+- **Everything under 300ms.** Entrances are 220–460ms, presses 160ms.
+- **Press feedback everywhere.** `scale(0.97)` on `:active` for every button.
+- **Staggered grids.** 45ms between cards, capped at 300ms total.
+- **Hover gated behind `(hover: hover) and (pointer: fine)`**, or a tap on a
+  phone leaves a card stuck in its hover state.
+- **Exit faster than enter.** Toasts arrive over 260ms and leave in 180ms: the
+  arrival earns a beat, the system responding should feel immediate.
+- **`prefers-reduced-motion` keeps opacity and drops movement**, rather than
+  killing everything — fades still aid comprehension. Confetti is skipped
+  entirely; celebration is the first thing that should go.
+
+The toast system is ~200 lines with no dependency. Timers pause when the tab is
+hidden, so a toast fired just before someone switches away is still there when
+they come back.
+
+---
+
+## The admin on a phone
+
+The admin is used standing at a packing bench, so it now works there:
+
+- **Slide-in drawer** instead of a horizontally scrolling strip of ten tab
+  labels, half of which were off-screen with no sign they existed.
+- **Bottom bar** with the four screens used during a shift — Home, Orders,
+  Products, Stock — one thumb-tap away.
+- **Card views instead of tables** on Products, Orders, Staff and Customers. A
+  nine-column table on a 390px screen is a horizontal scrollbar and a guessing
+  game.
+- **Modals become bottom sheets** below `sm`, with a grab handle and a body that
+  scrolls while the title stays put.
+- **16px form text on small screens**, because iOS zooms the whole page when a
+  focused input is smaller and the layout jumps on every tap.
+
+### The toggle bug
+
+The switch knob was `position: absolute` with no `left`, so it fell back to its
+static position — and since a `<button>` centres its inline content, that was
+the middle of the track. Translating right from there put the knob outside the
+pill entirely. It's now anchored at `left-0.5` and travels a measured 20px
+(44px track − 20px knob − 2px padding either side), so it stays inside at both
+ends. It also reports `role="switch"` rather than `aria-pressed`, which is what
+it actually is.
+
+---
+
 ## Configuration is read at runtime, not baked into the build
 
 `NEXT_PUBLIC_*` variables are compiled into the JavaScript bundle by Next.js at
@@ -361,6 +440,8 @@ Verified in this drop:
 - `storefront` — `tsc --noEmit` clean, `next build` succeeds (all 15 routes).
 - Recovery paths (`bootstrap.ts`, `scripts/*.js`) depend only on production
   packages, so they survive Railway's devDependency pruning.
+- `baseUrl` removed from the admin tsconfig — `paths` has worked without it
+  since TS 4.4, and it is deprecated in TS 7.
 - `backend` — typechecks clean against the source; the Prisma client can only be
   generated where `binaries.prisma.sh` is reachable, so full client-type
   validation happens on Railway's build. Every `prisma.<model>` accessor and

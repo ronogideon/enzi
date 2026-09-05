@@ -13,7 +13,7 @@ type Phase = "form" | "paying" | "pending";
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, tier, clear } = useCart();
+  const { items, clear } = useCart();
   const { customer, ready: accountReady } = useAccount();
 
   const [methods, setMethods] = useState<DeliveryMethod[]>([]);
@@ -75,12 +75,11 @@ export default function CheckoutPage() {
     if (items.length === 0) return;
     api
       .priceCart(
-        items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-        tier
+        items.map((i) => ({ productId: i.productId, quantity: i.quantity }))
       )
       .then(setPriced)
       .catch(() => setPriced(null));
-  }, [items, tier]);
+  }, [items]);
 
   const method = methods.find((m) => m.id === methodId) ?? null;
   const podEligible =
@@ -113,7 +112,6 @@ export default function CheckoutPage() {
         name: form.name.trim(),
         phone: normalizePhone(form.phone),
         email: form.email.trim() || undefined,
-        tier,
         lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         deliveryMethodId: methodId,
         deliveryDetails: form.details.trim()

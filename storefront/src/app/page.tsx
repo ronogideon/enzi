@@ -35,7 +35,7 @@ export default async function HomePage() {
           Premium, sustainable packaging tailored for e-commerce brands and
           businesses across Kenya.
         </p>
-        <div className="mt-14 grid gap-6 md:grid-cols-3">
+        <div className="stagger mt-14 grid gap-6 md:grid-cols-3">
           {WHY.map((w) => (
             <div key={w.title} className="card p-8 text-left">
               <div className="grid h-12 w-12 place-items-center rounded-xl border border-ink-line text-2xl">
@@ -58,7 +58,7 @@ export default async function HomePage() {
             title="Featured products"
             action={{ label: "View all products", href: "/shop" }}
           />
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="stagger grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {featured.slice(0, 4).map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
@@ -74,7 +74,7 @@ export default async function HomePage() {
             title="What our customers say"
             action={{ label: "All reviews", href: "/reviews" }}
           />
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="stagger grid gap-6 md:grid-cols-2">
             {reviews.slice(0, 2).map((r) => (
               <figure key={r.id} className="card p-8">
                 <StarRating value={r.rating} />

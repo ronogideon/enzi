@@ -37,7 +37,7 @@ export default function Stock() {
       ) : products.error ? (
         <EmptyState title="Couldn’t load stock" hint={products.error} />
       ) : (
-        <div className="card overflow-x-auto">
+        <div className="card -mx-4 overflow-x-auto rounded-none sm:mx-0 sm:rounded-2xl">
           <table className="w-full min-w-[560px]">
             <thead className="border-b border-ink-line">
               <tr>
