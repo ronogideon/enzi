@@ -41,6 +41,7 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [failInfo, setFailInfo] = useState<FailInfo | null>(null);
+  const currentOrderNumber = useRef<string>("");
   // A stable key for this checkout attempt. Persisted in sessionStorage so a
   // refresh mid-payment reuses it and the backend returns the SAME order rather
   // than creating a duplicate. Cleared once the order is placed.
@@ -191,6 +192,7 @@ export default function CheckoutPage() {
 
       // Pay-now path: fire the STK push and wait for the callback.
       setPhase("paying");
+      currentOrderNumber.current = order.orderNumber;
       const stk = await api.initiateStk(order.id, normalizePhone(form.phone));
       setCheckoutRequestId(stk.checkoutRequestId);
       pollStatus(stk.checkoutRequestId, order.orderNumber);
@@ -241,6 +243,11 @@ export default function CheckoutPage() {
         if (res.status === "FAILED") {
           clearInterval(timer);
           finishFail(res.outcome, res.message);
+          return;
+        }
+        if (res.stalePending) {
+          clearInterval(timer);
+          setPhase("pending");
           return;
         }
       } catch {
@@ -327,16 +334,28 @@ export default function CheckoutPage() {
               </>
             )}
           </p>
-          {phase === "pending" && checkoutRequestId && (
-            <button
-              onClick={() => {
-                setPhase("paying");
-                pollStatus(checkoutRequestId, "");
-              }}
-              className="btn-ghost mt-6"
-            >
-              Check again
-            </button>
+          {phase === "pending" && (
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              {checkoutRequestId && (
+                <button
+                  onClick={() => {
+                    setPhase("paying");
+                    pollStatus(checkoutRequestId, currentOrderNumber.current);
+                  }}
+                  className="btn-primary px-8"
+                >
+                  Check again
+                </button>
+              )}
+              {currentOrderNumber.current && (
+                <Link
+                  href={`/order/${currentOrderNumber.current}`}
+                  className="btn-ghost px-8"
+                >
+                  View my order
+                </Link>
+              )}
+            </div>
           )}
         </div>
       </div>

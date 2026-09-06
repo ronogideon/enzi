@@ -393,4 +393,8 @@ export const api = {
     }),
   paymentProvider: () =>
     req<{ provider: "mpesa" | "kopokopo" | "none" }>("/settings/payment-provider"),
+  recentCallbacks: () =>
+    req<{ callbacks: { at: string; provider: string; matched: boolean; detail: string }[] }>(
+      "/payments/callbacks/recent"
+    ),
 };

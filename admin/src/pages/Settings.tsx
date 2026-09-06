@@ -400,6 +400,74 @@ function PaymentsPanel({
         off directly — switching to the other is what changes it, so the shop always has a
         way to take payment.
       </p>
+
+      <CallbackDiagnostics />
+    </div>
+  );
+}
+
+/**
+ * Shows whether the payment gateway has actually been hitting our callback URL.
+ * This is the fastest way to tell "the callback never arrived" (URL wrong,
+ * firewall) from "it arrived but we couldn't match it" (signing or id
+ * mismatch) — the two look identical from the customer's side.
+ */
+function CallbackDiagnostics() {
+  const [data, setData] = useState<
+    { at: string; provider: string; matched: boolean; detail: string }[] | null
+  >(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await api.recentCallbacks();
+      setData(res.callbacks);
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-8 border-t border-ink-line pt-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-white">Callback activity</p>
+          <p className="mt-0.5 text-xs text-muted">
+            Recent payment confirmations received from the gateway.
+          </p>
+        </div>
+        <button className="btn-ghost text-xs" onClick={load} disabled={loading}>
+          {loading ? "Checking…" : "Check"}
+        </button>
+      </div>
+
+      {data !== null && (
+        <div className="mt-3">
+          {data.length === 0 ? (
+            <div className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-gold">
+              No callbacks received since the last restart. If you've made a test payment
+              and see nothing here, the gateway isn't reaching your callback URL — check
+              that it's set to your <span className="font-mono">api.</span> backend address
+              in both this dashboard and the gateway's own settings.
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {data.map((c, i) => (
+                <li key={i} className="flex items-center gap-2 text-xs">
+                  <Badge tone={c.matched ? "green" : "danger"}>
+                    {c.matched ? "matched" : "unmatched"}
+                  </Badge>
+                  <span className="text-muted">{new Date(c.at).toLocaleTimeString()}</span>
+                  <span className="truncate text-cloud">{c.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -189,20 +189,38 @@ export function verifyKopokopoSignature(
 
 /** Flatten the webhook body into the fields the payment record needs. */
 export function parseKopokopoWebhook(body: any) {
-  const data = body?.data ?? {};
+  // Kopo Kopo nests the useful bits differently across events and API
+  // versions, so pull from every place they're known to appear rather than
+  // assuming one shape. A wrong assumption here is a silently unmatched
+  // payment — the exact failure we're chasing.
+  const data = body?.data ?? body ?? {};
   const attributes = data.attributes ?? {};
-  const event = attributes.event ?? {};
-  const resource = event.resource ?? {};
+  const event = attributes.event ?? data.event ?? {};
+  const resource = event.resource ?? attributes.resource ?? data.resource ?? {};
 
-  const status: string | undefined = attributes.status ?? resource.status;
+  const status: string | undefined =
+    attributes.status ?? resource.status ?? event.type ?? data.status;
+
+  const paymentRequestId: string | undefined =
+    data.id ?? attributes.id ?? body?.id ?? resource.reference;
+
+  // The order number we set in metadata at initiation — our reliable fallback
+  // key when the id shapes don't line up.
+  const metadataRef: string | undefined =
+    attributes.metadata?.reference ??
+    data.metadata?.reference ??
+    resource.metadata?.reference ??
+    body?.metadata?.reference;
 
   return {
-    // The id here matches the payment request id returned when we initiated.
-    paymentRequestId: data.id as string | undefined,
+    paymentRequestId,
     topic: body?.topic as string | undefined,
     status,
     success: typeof status === "string" && status.toLowerCase() === "success",
-    reference: (resource.reference ?? resource.origination_time) as string | undefined,
+    reference:
+      (metadataRef ?? resource.reference ?? resource.origination_time) as
+        | string
+        | undefined,
     amount: resource.amount as string | undefined,
     phone: resource.sender_phone_number as string | undefined,
     errorMessage: (event.errors ?? attributes.errors) as string | undefined,

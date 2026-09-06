@@ -280,6 +280,7 @@ export const api = {
     orderNumber: string;
     receipt: string | null;
     message: string | null;
+    stalePending?: boolean;
   }> => fetch(`${apiBase()}/payments/status/${reference}`).then((r) => r.json()),
   submitReview: (body: { authorName: string; rating: number; body: string }) =>
     post<Review>("/reviews", body),

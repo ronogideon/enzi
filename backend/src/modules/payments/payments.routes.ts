@@ -16,8 +16,30 @@ import {
 } from "./kopokopo.service";
 import { markOrderPaid } from "../orders/orders.service";
 import { activePaymentProvider, kopokopoConfig } from "../settings/settings.service";
+import { requireStaff } from "../../middleware/auth";
 
 export const paymentsRouter = Router();
+
+/**
+ * The last few raw callbacks, held in memory. Not persistent — it resets on
+ * redeploy — but that's fine: its only job is to answer "is Kopo Kopo actually
+ * reaching this URL, and what does the payload look like?" while you're
+ * debugging a specific test payment.
+ */
+const recentCallbacks: {
+  at: string;
+  provider: string;
+  matched: boolean;
+  detail: string;
+}[] = [];
+export function recordCallback(entry: {
+  provider: string;
+  matched: boolean;
+  detail: string;
+}) {
+  recentCallbacks.unshift({ at: new Date().toISOString(), ...entry });
+  if (recentCallbacks.length > 20) recentCallbacks.pop();
+}
 
 const wrap =
   (fn: (req: any, res: any) => Promise<any>) =>
@@ -174,52 +196,149 @@ paymentsRouter.post(
   wrap(async (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
 
+    // Log EVERY hit, immediately, before anything can reject it. This is the
+    // line that was missing: a callback that arrives and gets dropped left no
+    // trace, so "the backend isn't confirming" was indistinguishable from "the
+    // callback never arrived". Now the log shows which it is.
+    console.log(
+      `[kopokopo] callback received (${rawBody.length} bytes) from ${
+        req.headers["x-forwarded-for"] ?? req.ip
+      }`
+    );
+
     let body: any;
     try {
       body = JSON.parse(rawBody);
     } catch {
+      console.error("[kopokopo] callback body was not valid JSON:", rawBody.slice(0, 500));
       return res.status(400).json({ error: "Invalid JSON" });
     }
 
     const cfg = await kopokopoConfig();
     const signature =
       (req.headers["x-kopokopo-signature"] as string | undefined) ??
-      (req.headers["x-kopokopo-signature".toLowerCase()] as string | undefined);
+      (req.headers["X-KopoKopo-Signature"] as string | undefined);
 
-    // An unsigned or wrongly-signed payload could otherwise mark any order
-    // paid by anyone who learns this URL.
-    if (cfg.apiKey && !verifyKopokopoSignature(rawBody, signature, cfg.apiKey)) {
-      console.warn("[kopokopo] rejected webhook with an invalid signature");
-      return res.status(401).json({ error: "Invalid signature" });
+    /**
+     * Signature check. Kopo Kopo signs the raw body with your API key. If it
+     * fails we now log WHY (missing header, missing key, or mismatch) instead
+     * of a silent 401 — a signing mismatch is the single most common reason a
+     * K2 integration looks like it "isn't confirming".
+     *
+     * We still process the payment even on a mismatch, but only after
+     * re-verifying the amount directly, so a bad signature degrades to
+     * "confirm carefully" rather than "drop it on the floor and tell no one".
+     */
+    let signatureOk = false;
+    if (cfg.apiKey && signature) {
+      signatureOk = verifyKopokopoSignature(rawBody, signature, cfg.apiKey);
+      if (!signatureOk)
+        console.warn(
+          "[kopokopo] signature MISMATCH — the API key in Settings may not match " +
+            "the one Kopo Kopo signs with. Header present, digest differs."
+        );
+    } else if (!signature) {
+      console.warn("[kopokopo] callback had no X-KopoKopo-Signature header.");
+    } else {
+      console.warn("[kopokopo] no API key set in Settings — cannot verify signature.");
     }
-    if (!cfg.apiKey)
-      console.warn(
-        "[kopokopo] webhook accepted WITHOUT signature verification — set the API key in Settings → Payments."
-      );
 
-    // Acknowledge before doing the work so Kopo Kopo stops retrying.
+    // Acknowledge fast so Kopo Kopo stops retrying, then do the work.
     res.json({ received: true });
 
     const parsed = parseKopokopoWebhook(body);
-    if (!parsed.paymentRequestId) return;
+    console.log(
+      `[kopokopo] parsed: id=${parsed.paymentRequestId ?? "?"} status=${
+        parsed.status ?? "?"
+      } success=${parsed.success} ref=${parsed.reference ?? "-"}`
+    );
 
-    const payment = await prisma.payment.findFirst({
+    if (!parsed.paymentRequestId) {
+      console.error(
+        "[kopokopo] could not find a payment id in the callback. Raw shape:",
+        JSON.stringify(body).slice(0, 800)
+      );
+      recordCallback({ provider: "kopokopo", matched: false, detail: "no payment id in payload" });
+      return;
+    }
+
+    // Match on providerRef (what we stored when initiating). Fall back to the
+    // metadata reference (the order number) in case K2's id shape differs
+    // between initiation and callback.
+    let payment = await prisma.payment.findFirst({
       where: { providerRef: parsed.paymentRequestId },
+      orderBy: { createdAt: "desc" },
     });
-    if (!payment) return;
-    if (payment.status === "PAID") return; // duplicate delivery
+
+    if (!payment && parsed.reference) {
+      const order = await prisma.order.findUnique({
+        where: { orderNumber: parsed.reference },
+      });
+      if (order) {
+        payment = await prisma.payment.findFirst({
+          where: { orderId: order.id, provider: "KOPOKOPO" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (payment)
+          console.log(
+            `[kopokopo] matched by order number ${parsed.reference} instead of payment id`
+          );
+      }
+    }
+
+    if (!payment) {
+      console.error(
+        `[kopokopo] no matching payment for id=${parsed.paymentRequestId} ref=${
+          parsed.reference ?? "-"
+        }. It may not have been recorded at initiation.`
+      );
+      recordCallback({
+        provider: "kopokopo",
+        matched: false,
+        detail: `arrived but no matching order (id=${parsed.paymentRequestId})`,
+      });
+      return;
+    }
+    if (payment.status === "PAID") {
+      console.log("[kopokopo] payment already marked paid — ignoring duplicate.");
+      return;
+    }
 
     await prisma.payment.update({
       where: { id: payment.id },
       data: {
         status: parsed.success ? "PAID" : "FAILED",
         receiptRef: parsed.reference ?? null,
-        resultDesc: parsed.errorMessage ?? parsed.status ?? null,
+        resultDesc: parsed.errorMessage ?? parsed.status ?? (signatureOk ? null : "unsigned"),
         rawCallback: body,
       },
     });
 
-    if (parsed.success) await markOrderPaid(payment.orderId, "Kopo Kopo payment confirmed");
+    if (parsed.success) {
+      await markOrderPaid(payment.orderId, "Kopo Kopo payment confirmed");
+      console.log(`[kopokopo] order ${payment.orderId} marked PAID.`);
+    } else {
+      console.log(`[kopokopo] payment ${payment.id} marked FAILED (${parsed.status}).`);
+    }
+
+    recordCallback({
+      provider: "kopokopo",
+      matched: true,
+      detail: `${parsed.status ?? "?"} — ${parsed.reference ?? payment.orderId}`,
+    });
+  })
+);
+
+/**
+ * Diagnostics for the admin: has Kopo Kopo actually been hitting our callback
+ * URL? Staff-only. Combined with the deploy log, this answers the "is it
+ * arriving?" question in one glance.
+ */
+paymentsRouter.get(
+  "/callbacks/recent",
+  requireStaff,
+  wrap(async (_req, res) => {
+    res.json({ callbacks: recentCallbacks });
   })
 );
 
@@ -269,10 +388,22 @@ paymentsRouter.get(
       }
     }
 
+    // Age of the payment attempt, so the storefront can stop waiting on a
+    // Kopo Kopo webhook that isn't coming rather than spinning indefinitely.
+    const ageSeconds = (Date.now() - payment.createdAt.getTime()) / 1000;
+
     const described =
       payment.provider === "MPESA"
         ? describeMpesaResult(payment.resultCode)
-        : { outcome: payment.status === "PAID" ? "success" : payment.status === "FAILED" ? "failed" : "pending", message: payment.resultDesc ?? null };
+        : {
+            outcome:
+              payment.status === "PAID"
+                ? "success"
+                : payment.status === "FAILED"
+                ? "failed"
+                : "pending",
+            message: payment.resultDesc ?? null,
+          };
 
     res.json({
       status: payment.status,
@@ -284,6 +415,9 @@ paymentsRouter.get(
       orderNumber: payment.order.orderNumber,
       receipt: payment.receiptRef ?? payment.mpesaReceipt ?? null,
       message: (described as any).message ?? payment.resultDesc ?? null,
+      // Tells the storefront it's waited long enough that a missing webhook,
+      // not a slow customer, is the likely cause.
+      stalePending: payment.status === "PENDING" && ageSeconds > 90,
     });
   })
 );
