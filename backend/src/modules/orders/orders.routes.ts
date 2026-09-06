@@ -189,6 +189,33 @@ ordersRouter.patch(
   })
 );
 
+/**
+ * Ask the payment gateway directly whether this order's latest payment went
+ * through — the definitive check that doesn't depend on a webhook. Marks the
+ * order paid if the gateway says so.
+ */
+ordersRouter.post(
+  "/:id/verify-payment",
+  requireStaff,
+  wrap(async (req, res) => {
+    const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!order) throw new HttpError(404, "Order not found");
+    if (order.isPaid) return res.json({ ok: true, alreadyPaid: true });
+
+    const payment = await prisma.payment.findFirst({
+      where: { orderId: order.id, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!payment)
+      return res.json({ ok: false, message: "No pending payment to check for this order." });
+
+    const { verifyPaymentWithGateway } = await import("../payments/payments.service");
+    const result = await verifyPaymentWithGateway(payment.id);
+    const fresh = await loadOrder(order.id);
+    res.json({ ...result, order: fresh });
+  })
+);
+
 /** Record an off-platform payment (cash at the counter, direct paybill). */
 ordersRouter.post(
   "/:id/mark-paid",

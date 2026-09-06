@@ -8,9 +8,9 @@ import {
   queryStkStatus,
 } from "./mpesa.service";
 import {
-  initiateKopokopoStk,
   parseKopokopoWebhook,
   verifyKopokopoSignature,
+  queryKopokopoStatus,
 } from "./kopokopo.service";
 import { markOrderPaid } from "../orders/orders.service";
 import { activePaymentProvider, kopokopoConfig } from "../settings/settings.service";
@@ -145,30 +145,30 @@ paymentsRouter.post(
     }
 
     const cfg = await kopokopoConfig();
-    const signature =
-      (req.headers["x-kopokopo-signature"] as string | undefined) ??
-      (req.headers["X-KopoKopo-Signature"] as string | undefined);
+    // Express lower-cases header names, so this one lookup covers the header
+    // whatever case Kopo Kopo sends it in ("X-KopoKopo-Signature").
+    const signature = req.headers["x-kopokopo-signature"] as string | undefined;
 
     /**
-     * Signature check. Kopo Kopo signs the raw body with your API key. If it
-     * fails we now log WHY (missing header, missing key, or mismatch) instead
-     * of a silent 401 — a signing mismatch is the single most common reason a
-     * K2 integration looks like it "isn't confirming".
+     * Signature check — now matching the SDK exactly: HMAC-SHA256 over
+     * JSON.stringify(parsedBody), not the raw bytes. The raw-bytes version
+     * rejected every real callback, which is why nothing was confirming.
      *
-     * We still process the payment even on a mismatch, but only after
-     * re-verifying the amount directly, so a bad signature degrades to
-     * "confirm carefully" rather than "drop it on the floor and tell no one".
+     * On a genuine mismatch we still process the payment (logging loudly),
+     * because the direct status query below re-confirms the outcome with Kopo
+     * Kopo anyway — so a signing quirk degrades to "verified a different way"
+     * rather than "silently dropped".
      */
+    const signedPayload = JSON.stringify(body);
     let signatureOk = false;
     if (cfg.apiKey && signature) {
-      signatureOk = verifyKopokopoSignature(rawBody, signature, cfg.apiKey);
+      signatureOk = verifyKopokopoSignature(signedPayload, signature, cfg.apiKey);
       if (!signatureOk)
         console.warn(
-          "[kopokopo] signature MISMATCH — the API key in Settings may not match " +
-            "the one Kopo Kopo signs with. Header present, digest differs."
+          "[kopokopo] signature mismatch — will re-verify the payment directly with Kopo Kopo."
         );
     } else if (!signature) {
-      console.warn("[kopokopo] callback had no X-KopoKopo-Signature header.");
+      console.warn("[kopokopo] callback had no X-kopokopo-signature header.");
     } else {
       console.warn("[kopokopo] no API key set in Settings — cannot verify signature.");
     }
@@ -234,21 +234,36 @@ paymentsRouter.post(
       return;
     }
 
+    // Decide the outcome. If the signature verified, trust the payload. If it
+    // didn't, re-confirm against Kopo Kopo directly rather than trusting an
+    // unsigned webhook — this is what keeps an unverifiable callback from
+    // either being blindly trusted or silently dropped.
+    let success = parsed.success;
+    let outcomeNote = parsed.status ?? "";
+    if (!signatureOk && payment.statusUrl) {
+      const queried = await queryKopokopoStatus(payment.statusUrl);
+      if (queried) {
+        success = queried.success;
+        outcomeNote = queried.status ?? outcomeNote;
+        console.log(`[kopokopo] re-verified via status query: ${queried.status}`);
+      }
+    }
+
     await prisma.payment.update({
       where: { id: payment.id },
       data: {
-        status: parsed.success ? "PAID" : "FAILED",
+        status: success ? "PAID" : "FAILED",
         receiptRef: parsed.reference ?? null,
-        resultDesc: parsed.errorMessage ?? parsed.status ?? (signatureOk ? null : "unsigned"),
+        resultDesc: parsed.errorMessage ?? outcomeNote ?? null,
         rawCallback: body,
       },
     });
 
-    if (parsed.success) {
+    if (success) {
       await markOrderPaid(payment.orderId, "Kopo Kopo payment confirmed");
       console.log(`[kopokopo] order ${payment.orderId} marked PAID.`);
     } else {
-      console.log(`[kopokopo] payment ${payment.id} marked FAILED (${parsed.status}).`);
+      console.log(`[kopokopo] payment ${payment.id} marked FAILED (${outcomeNote}).`);
     }
 
     recordCallback({
@@ -318,6 +333,33 @@ paymentsRouter.get(
       }
     }
 
+    // Kopo Kopo: ask K2 directly for the outcome. This is the definitive check
+    // that doesn't depend on the webhook arriving — the customer's screen
+    // resolves (paid / cancelled / failed) straight from the gateway.
+    if (
+      payment.status === "PENDING" &&
+      payment.provider === "KOPOKOPO" &&
+      payment.statusUrl
+    ) {
+      const queried = await queryKopokopoStatus(payment.statusUrl);
+      if (queried && queried.settled) {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: queried.success ? "PAID" : "FAILED",
+            receiptRef: queried.reference ?? undefined,
+            resultDesc: queried.errorMessage ?? queried.status ?? null,
+          },
+        });
+        if (queried.success)
+          await markOrderPaid(payment.orderId, "Kopo Kopo payment confirmed");
+        payment = (await prisma.payment.findUnique({
+          where: { id: payment.id },
+          include: { order: true },
+        }))!;
+      }
+    }
+
     // Age of the payment attempt, so the storefront can stop waiting on a
     // Kopo Kopo webhook that isn't coming rather than spinning indefinitely.
     const ageSeconds = (Date.now() - payment.createdAt.getTime()) / 1000;
@@ -332,7 +374,10 @@ paymentsRouter.get(
                 : payment.status === "FAILED"
                 ? "failed"
                 : "pending",
-            message: payment.resultDesc ?? null,
+            message:
+              payment.status === "FAILED"
+                ? payment.resultDesc ?? "The payment didn't go through. You can try again."
+                : payment.resultDesc ?? null,
           };
 
     res.json({

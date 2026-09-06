@@ -207,8 +207,8 @@ function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm text-gold">
-                {prompted
-                  ? "Prompt sent — enter your M-Pesa PIN on your phone."
+                {prompted && cooldown > 0
+                  ? "Prompt sent — enter your M-Pesa PIN on your phone. You can retry once the timer ends."
                   : order.lastPaymentStatus === "FAILED"
                   ? order.lastPaymentMessage ?? "The last payment didn't go through."
                   : "This order is waiting for payment."}
@@ -224,10 +224,8 @@ function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void 
               {paying
                 ? "Sending…"
                 : cooldown > 0
-                ? `Retry in ${cooldown}s`
-                : prompted
-                ? "Send again"
-                : "Pay now"}
+                ? `Retry Payment in ${cooldown}s`
+                : "Retry Payment"}
             </button>
           </div>
         </div>

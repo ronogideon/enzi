@@ -294,6 +294,7 @@ function OrderModal({
   const [error, setError] = useState<string | null>(null);
   const [tracking, setTracking] = useState<string | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
+  const [verifyNote, setVerifyNote] = useState<string | null>(null);
 
   const order = detail.data;
   // Seed the editable fields once the order arrives, without clobbering typing.
@@ -416,14 +417,43 @@ function OrderModal({
               </div>
             )}
 
-            {!order.isPaid && order.status !== "CANCELLED" && can(["SUPERADMIN", "ADMIN"]) && (
-              <button
-                disabled={busy}
-                onClick={() => act(() => api.markOrderPaid(orderId))}
-                className="btn-ghost mt-3"
-              >
-                Record payment received
-              </button>
+            {!order.isPaid && order.status !== "CANCELLED" && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      const r = await api.verifyOrderPayment(orderId);
+                      setError(null);
+                      // Reuse the error banner slot for a neutral result note.
+                      setVerifyNote(r.message);
+                      await detail.reload();
+                      onChanged();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Couldn't check with the gateway");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="btn-ghost"
+                >
+                  Check payment with gateway
+                </button>
+                {can(["SUPERADMIN", "ADMIN"]) && (
+                  <button
+                    disabled={busy}
+                    onClick={() => act(() => api.markOrderPaid(orderId))}
+                    className="btn-ghost"
+                  >
+                    Record payment received
+                  </button>
+                )}
+              </div>
+            )}
+            {verifyNote && (
+              <p className="mt-2 text-xs text-muted">{verifyNote}</p>
             )}
           </div>
 

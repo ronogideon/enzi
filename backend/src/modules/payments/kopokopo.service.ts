@@ -38,15 +38,21 @@ async function getAccessToken(cfg: {
   if (cached && cached.key === key && Date.now() < cached.expiresAt) return cached.token;
 
   try {
-    const { data } = await axios.post(
-      `${hostFor(cfg.env)}/oauth/token`,
-      {
-        grant_type: "client_credentials",
-        client_id: cfg.clientId,
-        client_secret: cfg.clientSecret,
+    // The SDK sends this form-encoded with a User-Agent; match it exactly so we
+    // behave identically to a request Kopo Kopo has tested against.
+    const form = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+    });
+    const { data } = await axios.post(`${hostFor(cfg.env)}/oauth/token`, form.toString(), {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Enzi-Kopokopo/1.0",
       },
-      { headers: { "Content-Type": "application/json" }, timeout: 20000 }
-    );
+      timeout: 20000,
+    });
 
     if (!data?.access_token)
       throw new HttpError(502, "Kopo Kopo did not return an access token");
@@ -74,6 +80,8 @@ export function resetKopokopoToken() {
 
 export interface KopokopoStkResult {
   paymentRequestId: string;
+  /** Full Kopo Kopo resource URL — poll this to get the definitive status. */
+  statusUrl: string;
   customerMessage: string;
 }
 
@@ -134,19 +142,24 @@ export async function initiateKopokopoStk(params: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
+          "User-Agent": "Enzi-Kopokopo/1.0",
         },
         timeout: 30000,
       }
     );
 
-    const location: string | undefined = res.headers?.location ?? res.data?._links?.self;
+    // The created resource's URL comes back in the Location header. Its last
+    // path segment is the id; the full URL is what we poll for status.
+    const location: string | undefined =
+      res.headers?.location ?? res.headers?.Location ?? res.data?._links?.self;
     const paymentRequestId = location?.split("/").filter(Boolean).pop();
 
-    if (!paymentRequestId)
+    if (!location || !paymentRequestId)
       throw new HttpError(502, "Kopo Kopo accepted the request but returned no reference");
 
     return {
       paymentRequestId,
+      statusUrl: location,
       customerMessage: "Check your phone and enter your M-PESA PIN to complete payment.",
     };
   } catch (e: any) {
@@ -172,55 +185,123 @@ export async function initiateKopokopoStk(params: {
  * callback URL could mark orders paid — so an unverifiable payload is dropped
  * rather than trusted.
  */
+/**
+ * Verify a webhook signature the way Kopo Kopo actually signs it.
+ *
+ * This was the bug that stopped every payment confirming: Kopo Kopo's own SDK
+ * computes the HMAC over `JSON.stringify(req.body)` — the RE-SERIALISED parsed
+ * body — NOT the raw request bytes. Our previous code hashed the raw bytes, so
+ * the digest never matched, every callback was rejected 401, and no order was
+ * ever marked paid.
+ *
+ * The signature is a hex digest; the compare is done over hex buffers with a
+ * constant-time comparison, matching lib/helpers/auth.js in the SDK.
+ */
 export function verifyKopokopoSignature(
-  rawBody: string,
+  signedPayload: string,
   signature: string | undefined,
   apiKey: string
 ): boolean {
   if (!signature || !apiKey) return false;
-  const expected = crypto.createHmac("sha256", apiKey).update(rawBody, "utf8").digest("hex");
+  const expected = crypto
+    .createHmac("sha256", apiKey)
+    .update(signedPayload, "utf8")
+    .digest("hex");
 
-  // Constant-time compare; a length mismatch would throw in timingSafeEqual.
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(signature, "utf8");
-  if (a.length !== b.length) return false;
+  let a: Buffer;
+  let b: Buffer;
+  try {
+    a = Buffer.from(expected, "hex");
+    b = Buffer.from(signature, "hex");
+  } catch {
+    return false;
+  }
+  if (a.length === 0 || a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Query a payment's status directly from Kopo Kopo by GETting its resource URL.
+ *
+ * This is the SDK's `getStatus`, and it's the answer to "is Kopo Kopo actually
+ * reporting to us?" — we don't have to wait for the webhook at all. After the
+ * STK we can poll this URL and read the real outcome straight from K2, which
+ * makes confirmation work even if the callback never arrives.
+ *
+ * Returns the same shape as the parsed webhook, so callers handle both
+ * identically.
+ */
+export async function queryKopokopoStatus(statusUrl: string): Promise<{
+  status: string | undefined;
+  success: boolean;
+  settled: boolean;
+  reference: string | undefined;
+  errorMessage: string | undefined;
+} | null> {
+  if (!statusUrl) return null;
+  const cfg = await kopokopoConfig();
+  if (!cfg.clientId || !cfg.clientSecret) return null;
+
+  try {
+    const token = await getAccessToken(cfg);
+    const { data } = await axios.get(statusUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "User-Agent": "Enzi-Kopokopo/1.0",
+      },
+      timeout: 20000,
+    });
+
+    const attributes = data?.data?.attributes ?? {};
+    // The top-level attributes.status is the request outcome: Pending, Success,
+    // or Failed. The nested resource.status ("Received") is the money movement
+    // and only appears on success — so the OUTCOME we key on is the former.
+    const status: string | undefined = attributes.status;
+    const norm = (status ?? "").toLowerCase();
+    const resource = attributes.event?.resource ?? {};
+
+    return {
+      status,
+      success: norm === "success",
+      // "Pending" means the customer hasn't acted yet; anything that isn't
+      // success or pending is a terminal failure.
+      settled: norm === "success" || (norm !== "pending" && norm !== ""),
+      reference: attributes.metadata?.reference ?? resource.reference,
+      errorMessage: attributes.event?.errors ?? undefined,
+    };
+  } catch {
+    // Network hiccup or not-ready — treat as "still pending", let the caller
+    // poll again.
+    return null;
+  }
 }
 
 /** Flatten the webhook body into the fields the payment record needs. */
 export function parseKopokopoWebhook(body: any) {
-  // Kopo Kopo nests the useful bits differently across events and API
-  // versions, so pull from every place they're known to appear rather than
-  // assuming one shape. A wrong assumption here is a silently unmatched
-  // payment — the exact failure we're chasing.
-  const data = body?.data ?? body ?? {};
+  // Shape confirmed against the SDK's own test fixture
+  // (test/response/hooks/stksuccessresult.js):
+  //   data.id                             -> the incoming_payment id (our providerRef)
+  //   data.attributes.status              -> "Success" | "Failed" | "Pending"  <- the OUTCOME
+  //   data.attributes.event.resource.*    -> the money-movement detail
+  //   data.attributes.event.errors        -> failure detail, null on success
+  //   data.attributes.metadata.reference  -> our order number, set at initiation
+  const data = body?.data ?? {};
   const attributes = data.attributes ?? {};
-  const event = attributes.event ?? data.event ?? {};
-  const resource = event.resource ?? attributes.resource ?? data.resource ?? {};
+  const event = attributes.event ?? {};
+  const resource = event.resource ?? {};
 
-  const status: string | undefined =
-    attributes.status ?? resource.status ?? event.type ?? data.status;
-
-  const paymentRequestId: string | undefined =
-    data.id ?? attributes.id ?? body?.id ?? resource.reference;
-
-  // The order number we set in metadata at initiation — our reliable fallback
-  // key when the id shapes don't line up.
-  const metadataRef: string | undefined =
-    attributes.metadata?.reference ??
-    data.metadata?.reference ??
-    resource.metadata?.reference ??
-    body?.metadata?.reference;
+  // The request outcome lives at attributes.status. resource.status is
+  // "Received" and is NOT the field to branch on.
+  const status: string | undefined = attributes.status;
+  const norm = (status ?? "").toLowerCase();
 
   return {
-    paymentRequestId,
-    topic: body?.topic as string | undefined,
+    paymentRequestId: (data.id ?? attributes.id) as string | undefined,
+    topic: (attributes.event?.type ?? body?.topic) as string | undefined,
     status,
-    success: typeof status === "string" && status.toLowerCase() === "success",
-    reference:
-      (metadataRef ?? resource.reference ?? resource.origination_time) as
-        | string
-        | undefined,
+    success: norm === "success",
+    reference: (attributes.metadata?.reference ?? resource.reference) as string | undefined,
     amount: resource.amount as string | undefined,
     phone: resource.sender_phone_number as string | undefined,
     errorMessage: (event.errors ?? attributes.errors) as string | undefined,

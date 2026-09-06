@@ -321,6 +321,11 @@ export const api = {
     req<Order>(`/orders/${id}`, { method: "PATCH", body }),
   markOrderPaid: (id: string, note?: string) =>
     req<Order>(`/orders/${id}/mark-paid`, { method: "POST", body: { note } }),
+  verifyOrderPayment: (id: string) =>
+    req<{ ok: boolean; message: string; status?: string; order?: Order }>(
+      `/orders/${id}/verify-payment`,
+      { method: "POST" }
+    ),
 
   // customers (CRM)
   customers: (params: { search?: string; hasAccount?: boolean } = {}) => {

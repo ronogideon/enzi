@@ -35,6 +35,7 @@ export default function CheckoutPage() {
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<string | null>(null);
   const currentOrderNumber = useRef<string>("");
+  const [secondsLeft, setSecondsLeft] = useState(25);
 
   /**
    * Idempotency key for THIS attempt.
@@ -213,29 +214,38 @@ export default function CheckoutPage() {
    * a bit beyond that before offering a manual re-check.
    */
   function pollStatus(id: string, orderNumber: string) {
-    let tries = 0;
-    const MAX_TRIES = 28; // ~84s at 3s
+    // 25-second window: the customer sees a live countdown, and if the payment
+    // hasn't resolved by zero we redirect to their account page where the order
+    // sits with a Retry Payment button. A cancel / wrong-PIN / success resolves
+    // and redirects immediately (via the backend's direct status query).
+    const WINDOW_S = 25;
+    setSecondsLeft(WINDOW_S);
+    let elapsed = 0;
+
+    const countdown = setInterval(() => {
+      elapsed += 1;
+      setSecondsLeft(Math.max(0, WINDOW_S - elapsed));
+    }, 1000);
 
     const done = () => {
       clearInterval(timer);
+      clearInterval(countdown);
       clear();
       router.push("/account");
     };
 
+    // Poll every 2s so a resolved payment (paid, cancelled, wrong PIN) redirects
+    // promptly rather than waiting out the full window.
     const timer = setInterval(async () => {
-      tries++;
       try {
         const res = await api.paymentStatus(id);
         if (res.isPaid || res.status === "PAID") return done();
         if (res.status === "FAILED") return done();
-        if (res.stalePending) return done();
       } catch {
         /* transient — keep polling */
       }
-      // Waited out the STK window with no resolution: the order is safe and
-      // sitting on the account page as "awaiting payment", so send them there.
-      if (tries >= MAX_TRIES) return done();
-    }, 3000);
+      if (elapsed >= WINDOW_S) return done();
+    }, 2000);
   }
 
 
@@ -267,8 +277,9 @@ export default function CheckoutPage() {
             to pay {formatKes(total)}.
           </p>
           <p className="mt-4 text-sm text-faint">
-            Waiting for confirmation — this can take a few seconds. You'll be taken to your
-            orders once it's done.
+            Waiting for confirmation… taking you to your orders in{" "}
+            <span className="tabular-nums text-cloud">{secondsLeft}s</span>. If the prompt
+            was cancelled or the PIN was wrong, you'll be able to retry there.
           </p>
         </div>
       </div>

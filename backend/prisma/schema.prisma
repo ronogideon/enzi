@@ -425,6 +425,9 @@ model Payment {
   /// (M-Pesa code, Kopo Kopo receipt) lands in receiptRef.
   providerRef       String?         @unique
   receiptRef        String?
+  /// Kopo Kopo resource URL for this payment, so we can query its status
+  /// directly instead of only waiting for a webhook.
+  statusUrl         String?
 
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
