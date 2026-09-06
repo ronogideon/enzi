@@ -228,7 +228,7 @@ function PaymentsPanel({
 }) {
   const current = settings["payments.provider"]?.value === "kopokopo" ? "kopokopo" : "mpesa";
   const [selected, setSelected] = useState<"mpesa" | "kopokopo">(current);
-  const [switching, setSwitching] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const providers = [
@@ -254,7 +254,7 @@ function PaymentsPanel({
   const isConfigured = (keys: string[]) => keys.every((k) => settings[k]?.isSet);
 
   async function makeLive(provider: "mpesa" | "kopokopo") {
-    setSwitching(true);
+    setSwitching(provider);
     setError(null);
     try {
       await api.setSetting("payments.provider", provider);
@@ -262,7 +262,7 @@ function PaymentsPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't switch gateway");
     } finally {
-      setSwitching(false);
+      setSwitching(null);
     }
   }
 
@@ -279,51 +279,81 @@ function PaymentsPanel({
 
       <h2 className="font-display text-lg font-bold text-white">Payment gateway</h2>
       <p className="mt-1 text-sm text-muted">
-        Customers see the same M-PESA prompt either way — this is about who you hold the
-        merchant relationship with. One is live at a time.
+        Both are shown below. Customers see the same M-PESA prompt either way — this is
+        about who you hold the merchant relationship with. One is live at a time; tap a
+        card to configure it, then make it live.
       </p>
 
+      {/* Both gateways, always visible. The live one is marked, and each card
+          carries its own "make live" action so switching never depends on
+          first changing some other selection. */}
       <div className="mt-5 space-y-3">
         {providers.map((p) => {
           const configured = isConfigured(p.requires);
           const live = current === p.key;
+          const isSelected = selected === p.key;
           return (
-            <button
+            <div
               key={p.key}
-              onClick={() => setSelected(p.key)}
-              className={`w-full rounded-xl border p-4 text-left transition-colors ${
-                selected === p.key
+              className={`rounded-xl border p-4 transition-colors ${
+                live
+                  ? "border-whatsapp/40 bg-whatsapp/[0.04]"
+                  : isSelected
                   ? "border-white/40 bg-ink-hover/40"
-                  : "border-ink-line hover:border-white/20"
+                  : "border-ink-line"
               }`}
             >
-              <div className="flex items-start gap-3">
+              <button
+                onClick={() => setSelected(p.key)}
+                className="flex w-full items-start gap-3 text-left"
+              >
                 <span
                   className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
-                    selected === p.key ? "border-white" : "border-ink-line"
+                    isSelected ? "border-white" : "border-ink-line"
                   }`}
                 >
-                  {selected === p.key && <span className="h-2 w-2 rounded-full bg-white" />}
+                  {isSelected && <span className="h-2 w-2 rounded-full bg-white" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-white">{p.name}</span>
-                    {live && <Badge tone="green">live</Badge>}
-                    {configured ? (
-                      !live && <Badge tone="muted">configured</Badge>
+                    {live ? (
+                      <Badge tone="green">live now</Badge>
+                    ) : configured ? (
+                      <Badge tone="muted">ready</Badge>
                     ) : (
                       <Badge tone="gold">not set up</Badge>
                     )}
                   </div>
                   <p className="mt-1 text-sm text-muted">{p.blurb}</p>
                 </div>
-              </div>
-            </button>
+              </button>
+
+              {/* Per-card switch control. Present on the non-live gateway
+                  whenever it's ready, so making a switch is always one tap and
+                  never hidden behind selecting something first. */}
+              {!live && (
+                <div className="mt-3 flex items-center gap-3 border-t border-ink-line/60 pt-3">
+                  <button
+                    className="btn-primary text-xs"
+                    onClick={() => makeLive(p.key)}
+                    disabled={switching !== null || !configured}
+                  >
+                    {switching === p.key ? "Switching…" : `Make ${p.name} live`}
+                  </button>
+                  {!configured && (
+                    <span className="text-xs text-faint">
+                      Fill in its credentials below first
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {/* Steps, in the order they have to happen. */}
+      {/* Credentials for whichever card is selected. */}
       <div className="mt-8 border-t border-ink-line pt-8">
         <SettingsForm
           title={`${active.name} credentials`}
@@ -336,30 +366,6 @@ function PaymentsPanel({
         />
       </div>
 
-      {current !== selected && (
-        <div className="mt-6 rounded-xl border border-gold/30 bg-gold/10 p-4">
-          <p className="text-sm text-gold">
-            {active.name} isn't the live gateway yet.
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            Test the connection above first, then switch. If the gateway you pick isn't
-            fully configured, checkout falls back to whichever one is, so you can't take
-            the shop offline mid-switch.
-          </p>
-          <button
-            className="btn-primary mt-4"
-            onClick={() => makeLive(selected)}
-            disabled={switching || !isConfigured(active.requires)}
-          >
-            {switching ? "Switching…" : `Make ${active.name} live`}
-          </button>
-          {!isConfigured(active.requires) && (
-            <p className="mt-2 text-xs text-faint">
-              Fill in the required credentials first.
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

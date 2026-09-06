@@ -20,8 +20,16 @@ export default function CheckoutPage() {
   const [priced, setPriced] = useState<PricedCart | null>(null);
   const [methodId, setMethodId] = useState<string>("");
   const [zoneId, setZoneId] = useState<string>("");
+  const [zoneSearch, setZoneSearch] = useState("");
   const [payNow, setPayNow] = useState(false); // for POD-eligible methods
-  const [form, setForm] = useState({ name: "", phone: "", email: "", details: "" });
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    details: "",
+    // Optional extras — a building name, a gate, an alternative number.
+    instructions: "",
+  });
 
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +91,19 @@ export default function CheckoutPage() {
   }, [items]);
 
   const method = methods.find((m) => m.id === methodId) ?? null;
-  const zones = (method?.zones ?? []).filter((z) => z.active !== false);
+  const zones = (method?.zones ?? [])
+    .filter((z) => z.active !== false)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const zone = zones.find((z) => z.id === zoneId) ?? null;
+
+  const zoneQuery = zoneSearch.trim().toLowerCase();
+  const visibleZones = zoneQuery
+    ? zones.filter(
+        (z) =>
+          z.name.toLowerCase().includes(zoneQuery) ||
+          (z.description ?? "").toLowerCase().includes(zoneQuery)
+      )
+    : zones;
   const podEligible =
     !!method &&
     method.podAllowed &&
@@ -130,9 +149,13 @@ export default function CheckoutPage() {
         lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         deliveryMethodId: methodId,
         deliveryZoneId: zoneId || undefined,
-        deliveryDetails: form.details.trim()
-          ? { note: form.details.trim() }
-          : undefined,
+        deliveryDetails:
+          form.details.trim() || form.instructions.trim()
+            ? {
+                note: form.details.trim() || undefined,
+                instructions: form.instructions.trim() || undefined,
+              }
+            : undefined,
       });
 
       // Pay-on-delivery path (POD method, customer didn't choose pay-now):
@@ -364,9 +387,22 @@ export default function CheckoutPage() {
                 someone upcountry could check out at the CBD rate. */}
             {zones.length > 0 && (
               <div className="animate-rise mt-5">
-                <p className="label">Which area?</p>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="label mb-0">Which area?</p>
+                  {/* A search box earns its place once there are enough areas
+                      that scanning the list becomes a chore. */}
+                  {zones.length > 6 && (
+                    <input
+                      className="field h-9 max-w-[200px] py-1.5 text-sm"
+                      placeholder="Search areas…"
+                      value={zoneSearch}
+                      onChange={(e) => setZoneSearch(e.target.value)}
+                      aria-label="Search delivery areas"
+                    />
+                  )}
+                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {zones.map((z) => {
+                  {visibleZones.map((z) => {
                     const free = z.freeAbove != null && subtotal >= z.freeAbove;
                     return (
                       <label
@@ -401,7 +437,13 @@ export default function CheckoutPage() {
                     );
                   })}
                 </div>
-                {!zoneId && (
+                {visibleZones.length === 0 && (
+                  <p className="col-span-full py-2 text-sm text-faint">
+                    No areas match "{zoneSearch}". Try a different spelling, or reach us on
+                    WhatsApp if yours isn't listed.
+                  </p>
+                )}
+                {!zoneId && visibleZones.length > 0 && (
                   <p className="mt-2 text-xs text-faint">
                     Pick your area so we can work out the delivery cost.
                   </p>
@@ -410,12 +452,33 @@ export default function CheckoutPage() {
             )}
 
             {needsAddress && (
-              <textarea
-                className="field mt-4 min-h-24"
-                placeholder="Delivery address / location details"
-                value={form.details}
-                onChange={(e) => setForm({ ...form, details: e.target.value })}
-              />
+              <div className="mt-4">
+                <label className="label">Delivery address</label>
+                <textarea
+                  className="field min-h-24"
+                  placeholder="Estate, street, house or apartment number"
+                  value={form.details}
+                  onChange={(e) => setForm({ ...form, details: e.target.value })}
+                />
+              </div>
+            )}
+
+            {/* Optional extras, for anything that gets physically delivered or
+                dropped at an agent — a building name, a gate code, someone
+                else's number if the buyer won't be reachable. Never required. */}
+            {method && method.type !== "STORE_PICKUP" && (
+              <div className="mt-4">
+                <label className="label">
+                  Delivery instructions{" "}
+                  <span className="font-normal text-faint">(optional)</span>
+                </label>
+                <textarea
+                  className="field min-h-20"
+                  placeholder="Exact building, landmark, gate code, or an alternative phone number"
+                  value={form.instructions}
+                  onChange={(e) => setForm({ ...form, instructions: e.target.value })}
+                />
+              </div>
             )}
 
             {/* POD-eligible → let them optionally pay now */}

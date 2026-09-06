@@ -192,7 +192,7 @@ deliveryRouter.get(
         where: { active: true },
         orderBy: { position: "asc" },
         include: {
-          zones: { where: { active: true }, orderBy: { position: "asc" } },
+          zones: { where: { active: true }, orderBy: { name: "asc" } },
         },
       })
     );
@@ -207,7 +207,7 @@ deliveryRouter.get(
     res.json(
       await prisma.deliveryMethod.findMany({
         orderBy: { position: "asc" },
-        include: { zones: { orderBy: { position: "asc" } } },
+        include: { zones: { orderBy: { name: "asc" } } },
       })
     );
   })
@@ -263,7 +263,7 @@ deliveryRouter.patch(
       await prisma.deliveryMethod.update({
         where: { id: method.id },
         data,
-        include: { zones: { orderBy: { position: "asc" } } },
+        include: { zones: { orderBy: { name: "asc" } } },
       })
     );
   })

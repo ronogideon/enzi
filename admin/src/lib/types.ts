@@ -115,6 +115,7 @@ export interface Order {
     id: string; name?: string | null; phone: string; email?: string | null;
   } | null;
   deliveryMethod?: { name: string; type?: string } | null;
+  deliveryZone?: { id: string; name: string } | null;
   packedBy?: { id: string; name: string } | null;
   items: OrderItem[];
   events?: OrderEvent[];

@@ -303,8 +303,11 @@ function OrderModal({
   }
 
   const nexts = order.nextStatuses ?? [];
-  const address =
-    (order.deliveryDetails as { note?: string } | null)?.note ?? null;
+  const details = order.deliveryDetails as
+    | { note?: string; instructions?: string }
+    | null;
+  const address = details?.note ?? null;
+  const instructions = details?.instructions ?? null;
 
   return (
     <Modal title={`Order ${order.orderNumber}`} onClose={onClose} wide>
@@ -460,7 +463,18 @@ function OrderModal({
           <div className="card p-4">
             <p className="label">Delivery</p>
             <p className="text-cloud">{order.deliveryMethod?.name ?? "—"}</p>
+            {order.deliveryZone?.name && (
+              <p className="text-sm text-muted">{order.deliveryZone.name}</p>
+            )}
             {address && <p className="mt-1 whitespace-pre-wrap text-muted">{address}</p>}
+            {instructions && (
+              <div className="mt-2 rounded-lg border border-gold/25 bg-gold/5 p-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gold">
+                  Instructions
+                </p>
+                <p className="mt-0.5 whitespace-pre-wrap text-sm text-cloud">{instructions}</p>
+              </div>
+            )}
           </div>
 
           <div className="card p-4">

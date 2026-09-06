@@ -72,7 +72,9 @@ export default function Delivery() {
       ) : (
         <div className="space-y-4">
           {(methods.data ?? []).map((m) => {
-            const zones = m.zones ?? [];
+            const zones = [...(m.zones ?? [])].sort((a, b) =>
+              a.name.localeCompare(b.name)
+            );
             const canZone = ZONED.includes(m.type);
             return (
               <div key={m.id} className="card p-4 sm:p-5">

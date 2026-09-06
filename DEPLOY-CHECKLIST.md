@@ -1,94 +1,63 @@
-# Deploy checklist — Enzi v0.2.1
+# Deploy checklist — Enzi v0.2.2
+
+No schema change. Just redeploy all three services.
 
 ---
 
-## First: that P2021 error
+## Payments: both gateways now shown together
 
-**`P2021` means "this table doesn't exist in the database."** The code was
-deployed but the schema wasn't updated, so the API is asking for the
-`DeliveryZone` table that v0.2.0 added and Postgres has never heard of it.
+**Settings → Payments** lists M-Pesa and Kopo Kopo as two cards, always both
+visible:
 
-Fix, in the backend's Railway shell:
+- The live one is marked **live now** (green).
+- A configured-but-not-live one shows **ready**.
+- An unconfigured one shows **not set up**.
 
-```bash
-npm run db:push
-```
+Each card carries its own **Make … live** button, so switching is always one tap
+— it no longer depends on first selecting the other gateway. Tap a card to load
+its credentials below; fill them in, test, then make it live. The switch button
+stays disabled until that gateway's required fields are filled.
 
-That's the whole fix, and it clears every page showing it. From this release the
-error message says so directly instead of showing you a code.
-
-The same applies to `P2022` (a missing *column*) — same cause, same fix.
-
-**This is the step to run after any release that changes the schema.** If a page
-that worked yesterday starts failing right after a deploy, this is the first
-thing to check.
+> If you previously saw only Daraja: that was the v0.1.9 layout plus a bug where
+> Kopo Kopo defaulted to disabled. Both are fixed. If Kopo Kopo still shows "not
+> set up", enter its Client ID, Client secret and Till number and it becomes
+> selectable.
 
 ---
 
-## Why you only saw Daraja
+## Delivery areas
 
-Two reasons, one of them a real bug:
+Three changes, all on **Delivery** (admin) and checkout (storefront):
 
-1. In v0.1.9 Kopo Kopo was a separate tab. In v0.2.0 both are merged into one
-   **Payments** tab where you pick a provider. If you hadn't deployed v0.2.0
-   yet, you were looking at the older layout.
-2. **The bug:** `kopokopo.enabled` defaulted to `false`, and the merged UI
-   removed the toggle that set it. So even selecting Kopo Kopo would have left
-   checkout falling back to M-Pesa, silently. Selecting a provider is now what
-   enables it — there's no second hidden switch that can veto your choice.
+1. **Alphabetical.** Areas now list A–Z everywhere, not in the order you added
+   them — so a long list stays findable.
+2. **Search.** On checkout, once a method has more than six areas, a search box
+   appears next to "Which area?" so customers can type "Westl…" instead of
+   scrolling.
+3. **Delivery instructions.** Every delivery/parcel/agent method now has an
+   optional free-text field at checkout — exact building, landmark, gate code,
+   or an alternative phone number. It shows up highlighted in the order's
+   Delivery panel in the admin, so whoever packs and sends it sees it.
 
-After deploying, **Settings → Payments** shows both as radio options with
-"live" / "configured" / "not set up" badges.
-
----
-
-## Deploy steps
-
-1. **Backend** — redeploy, then `npm run db:push`.
-2. **Admin and storefront** — redeploy. No new Railway variables needed.
+Nothing to configure — these are live as soon as you deploy.
 
 ---
 
-## Set up Talk Sasa
+## Redeploy
 
-**Settings → SMS.** Africa's Talking is replaced by Talk Sasa.
+1. **Backend** — redeploy.
+2. **Admin** — redeploy.
+3. **Storefront** — redeploy.
 
-| Field | Value |
-|---|---|
-| API token | From your Talk Sasa dashboard |
-| Sender ID | e.g. `ENZI` |
-| API base URL | `https://bulksms.talksasa.com/api/v3` (leave as-is) |
-
-Hit **Test SMS connection** — it reads your credit balance back.
-
-**Register the sender ID with Talk Sasa first.** An unregistered sender is the
-commonest reason messages silently never arrive, with no error anywhere.
-
-Your old `AT_*` Railway variables are still read as a fallback, so nothing stops
-sending in the meantime. You can delete them once Talk Sasa is saved and tested.
-
----
-
-## Sessions are now split
-
-| | Lifetime | Idle sign-out |
-|---|---|---|
-| Admin / staff | 8 hours | 30 minutes |
-| Customer | 90 days | none |
-
-The admin warns two minutes before signing you out so you don't lose a
-half-typed product, and the login page tells you why it happened.
-
-Override with `STAFF_SESSION_TTL` / `CUSTOMER_SESSION_TTL` if 8 hours doesn't
-match how your shop works — but leave the idle timeout alone if the dashboard is
-ever open on a shared counter machine.
+No Railway variables, no `db:push`.
 
 ---
 
 ## Worth checking
 
-- [ ] Delivery, Categories and any other failing page load after `db:push`.
-- [ ] **Settings → Payments** shows Kopo Kopo alongside M-Pesa.
-- [ ] **Settings → SMS → Test connection** returns your Talk Sasa balance.
-- [ ] Send one test SMS to your own number and confirm it arrives from the
-      right sender ID.
+- [ ] **Settings → Payments** shows both gateways; the live one is badged, and
+      the other has a working "Make … live" button.
+- [ ] Add a 7th area to a delivery method, then on checkout confirm the search
+      box appears and filters.
+- [ ] Place a test order with a delivery instruction and confirm it appears,
+      highlighted, in the order's Delivery panel in the admin.
