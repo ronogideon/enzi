@@ -2,9 +2,7 @@ import { Router, raw } from "express";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { HttpError } from "../../middleware/error";
-import { toKes } from "../../lib/money";
 import {
-  initiateStkPush,
   parseStkCallback,
   describeMpesaResult,
   queryStkStatus,
@@ -16,6 +14,7 @@ import {
 } from "./kopokopo.service";
 import { markOrderPaid } from "../orders/orders.service";
 import { activePaymentProvider, kopokopoConfig } from "../settings/settings.service";
+import { startPaymentForOrder } from "./payments.service";
 import { requireStaff } from "../../middleware/auth";
 
 export const paymentsRouter = Router();
@@ -71,76 +70,7 @@ async function startPayment(req: any, res: any) {
   const { orderId, phone } = z
     .object({ orderId: z.string(), phone: z.string() })
     .parse(req.body);
-
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: { customer: true },
-  });
-  if (!order) throw new HttpError(404, "Order not found");
-  if (order.isPaid) throw new HttpError(400, "Order already paid");
-
-  const provider = await activePaymentProvider();
-  if (provider === "none")
-    throw new HttpError(
-      503,
-      "No payment gateway is configured. Add M-Pesa or Kopo Kopo credentials in Settings → Payments."
-    );
-
-  if (provider === "kopokopo") {
-    const [firstName, ...rest] = (order.customer?.name ?? "Customer").trim().split(/\s+/);
-    const stk = await initiateKopokopoStk({
-      phone,
-      amountKes: toKes(order.total),
-      reference: order.orderNumber,
-      firstName,
-      lastName: rest.join(" ") || "-",
-      email: order.customer?.email ?? undefined,
-    });
-
-    await prisma.payment.create({
-      data: {
-        orderId: order.id,
-        provider: "KOPOKOPO",
-        status: "PENDING",
-        amount: order.total,
-        phone,
-        providerRef: stk.paymentRequestId,
-      },
-    });
-
-    return res.json({
-      provider,
-      // The storefront polls this value; it is the provider's id either way.
-      checkoutRequestId: stk.paymentRequestId,
-      customerMessage: stk.customerMessage,
-    });
-  }
-
-  const stk = await initiateStkPush({
-    phone,
-    amountKes: toKes(order.total),
-    accountRef: order.orderNumber,
-    description: "Enzi order",
-  });
-
-  await prisma.payment.create({
-    data: {
-      orderId: order.id,
-      provider: "MPESA",
-      status: "PENDING",
-      amount: order.total,
-      phone,
-      checkoutRequestId: stk.checkoutRequestId,
-      merchantRequestId: stk.merchantRequestId,
-      providerRef: stk.checkoutRequestId,
-    },
-  });
-
-  res.json({
-    provider,
-    checkoutRequestId: stk.checkoutRequestId,
-    customerMessage: stk.customerMessage,
-  });
+  res.json(await startPaymentForOrder(orderId, phone));
 }
 
 paymentsRouter.post("/stk", wrap(startPayment));

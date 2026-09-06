@@ -238,7 +238,20 @@ export const api = {
       auth: true,
     }),
 
-  myOrders: () => request<Order[]>("/auth/customer/me/orders", { auth: true }),
+  myOrders: () =>
+    request<
+      (Order & {
+        canPay?: boolean;
+        lastPaymentStatus?: string | null;
+        lastPaymentMessage?: string | null;
+      })[]
+    >("/auth/customer/me/orders", { auth: true }),
+
+  retryOrderPayment: (orderNumber: string) =>
+    request<{ provider: string; checkoutRequestId: string; customerMessage: string }>(
+      `/auth/customer/me/orders/${orderNumber}/pay`,
+      { method: "POST", auth: true }
+    ),
 
   /** Does this number already have an account? Used to nudge at checkout. */
   checkPhone: (phone: string) =>
@@ -257,7 +270,12 @@ export const api = {
   priceCart: (lines: { productId: string; quantity: number }[]) =>
     post<PricedCart>("/orders/price", { lines }),
   placeOrder: (payload: unknown) =>
-    post<{ order: Order; requiresPayment: boolean }>("/orders", payload),
+    post<{
+      order: Order;
+      requiresPayment: boolean;
+      alreadyExisted?: boolean;
+      alreadyPaid?: boolean;
+    }>("/orders", payload),
   /** Gateway-agnostic: the server picks M-Pesa or Kopo Kopo from settings. */
   initiateStk: (orderId: string, phone: string) =>
     post<{ provider: string; checkoutRequestId: string; customerMessage: string }>(

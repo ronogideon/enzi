@@ -243,19 +243,61 @@ authRouter.post(
   })
 );
 
-/** A customer's own order history. */
+/** A customer's own order history, newest first. */
 authRouter.get(
   "/customer/me/orders",
   requireCustomer,
   wrap(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: { customerId: req.auth!.sub },
+      include: {
+        items: true,
+        deliveryMethod: true,
+        deliveryZone: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    // Flatten what the account page needs: can this order still be paid, and
+    // what did the last payment attempt say.
     res.json(
-      await prisma.order.findMany({
-        where: { customerId: req.auth!.sub },
-        include: { items: true, deliveryMethod: true },
-        orderBy: { createdAt: "desc" },
-        take: 50,
+      orders.map((o) => {
+        const last = o.payments[0];
+        return {
+          ...o,
+          payments: undefined,
+          canPay: !o.isPaid && o.status === "PENDING_PAYMENT",
+          lastPaymentStatus: last?.status ?? null,
+          lastPaymentMessage: last?.resultDesc ?? null,
+        };
       })
     );
+  })
+);
+
+/**
+ * Retry payment on an unpaid order the customer owns. Fires a fresh STK push
+ * through whichever gateway is live. The 40-second cooldown is enforced on the
+ * client, but we also refuse to re-charge an order that's already paid.
+ */
+authRouter.post(
+  "/customer/me/orders/:orderNumber/pay",
+  requireCustomer,
+  wrap(async (req, res) => {
+    const order = await prisma.order.findFirst({
+      where: { orderNumber: req.params.orderNumber, customerId: req.auth!.sub },
+      include: { customer: true },
+    });
+    if (!order) throw new HttpError(404, "Order not found");
+    if (order.isPaid) throw new HttpError(400, "This order is already paid");
+    if (order.status === "CANCELLED")
+      throw new HttpError(400, "This order was cancelled");
+
+    const { startPaymentForOrder } = await import("../payments/payments.service");
+    const result = await startPaymentForOrder(order.id, order.customer?.phone ?? "");
+    res.json(result);
   })
 );
 

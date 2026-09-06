@@ -10,12 +10,7 @@ import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
 import type { DeliveryMethod, PricedCart } from "@/lib/types";
 
-type Phase = "form" | "paying" | "pending" | "failed";
-
-interface FailInfo {
-  title: string;
-  message: string;
-}
+type Phase = "form" | "paying";
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -39,23 +34,25 @@ export default function CheckoutPage() {
 
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<string | null>(null);
-  const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
-  const [failInfo, setFailInfo] = useState<FailInfo | null>(null);
   const currentOrderNumber = useRef<string>("");
-  // A stable key for this checkout attempt. Persisted in sessionStorage so a
-  // refresh mid-payment reuses it and the backend returns the SAME order rather
-  // than creating a duplicate. Cleared once the order is placed.
-  const idempotencyKey = useRef<string>("");
-  if (!idempotencyKey.current) {
-    const stored = typeof window !== "undefined"
-      ? sessionStorage.getItem("enzi.checkout.key")
-      : null;
-    idempotencyKey.current =
-      stored ||
-      `co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-    if (typeof window !== "undefined")
-      sessionStorage.setItem("enzi.checkout.key", idempotencyKey.current);
-  }
+
+  /**
+   * Idempotency key for THIS attempt.
+   *
+   * The previous version persisted one fixed key in sessionStorage and only
+   * cleared it on the pay-on-delivery path — so after any successful order the
+   * stale key lived on, and every later checkout reused it, hit the already-paid
+   * order, and showed "Order already paid". A new account didn't help because
+   * sessionStorage is per-browser, not per-user.
+   *
+   * Now the key is generated fresh each time the checkout screen mounts. It
+   * still protects against the real double-submit (a double-tap, or the STK
+   * being fired twice in one sitting) because it's held in a ref for the life
+   * of the mounted page — but it does NOT survive to poison the next order.
+   */
+  const idempotencyKey = useRef<string>(
+    `co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  );
   const [prefilled, setPrefilled] = useState(false);
   const [existingAccount, setExistingAccount] = useState<{ name: string | null } | null>(null);
 
@@ -164,7 +161,7 @@ export default function CheckoutPage() {
   async function submit() {
     setError(null);
     try {
-      const { order, requiresPayment } = await api.placeOrder({
+      const { order, requiresPayment, alreadyPaid } = await api.placeOrder({
         name: form.name.trim(),
         phone: normalizePhone(form.phone),
         email: form.email.trim() || undefined,
@@ -181,10 +178,18 @@ export default function CheckoutPage() {
         idempotencyKey: idempotencyKey.current,
       });
 
+      // If this submit matched an already-PAID order (e.g. the customer came
+      // back to checkout with the same cart after paying), don't try to charge
+      // again — send them to their account where the order and its status live.
+      if (alreadyPaid) {
+        clear();
+        router.push("/account");
+        return;
+      }
+
       // Pay-on-delivery path (POD method, customer didn't choose pay-now):
       // order is already CONFIRMED — straight to the receipt.
       if (!requiresPayment && !willPayNow) {
-        sessionStorage.removeItem("enzi.checkout.key");
         clear();
         router.push(`/order/${order.orderNumber}`);
         return;
@@ -194,7 +199,6 @@ export default function CheckoutPage() {
       setPhase("paying");
       currentOrderNumber.current = order.orderNumber;
       const stk = await api.initiateStk(order.id, normalizePhone(form.phone));
-      setCheckoutRequestId(stk.checkoutRequestId);
       pollStatus(stk.checkoutRequestId, order.orderNumber);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -212,59 +216,29 @@ export default function CheckoutPage() {
     let tries = 0;
     const MAX_TRIES = 28; // ~84s at 3s
 
-    const finishFail = (outcome: string, message: string | null) => {
-      const titles: Record<string, string> = {
-        cancelled: "Payment cancelled",
-        timeout: "Prompt timed out",
-        wrong_pin: "Wrong PIN",
-        insufficient: "Insufficient balance",
-        failed: "Payment didn't go through",
-      };
-      setFailInfo({
-        title: titles[outcome] ?? "Payment didn't go through",
-        message:
-          message ??
-          "The payment didn't complete. Your order is saved — you can try paying again.",
-      });
-      setPhase("failed");
+    const done = () => {
+      clearInterval(timer);
+      clear();
+      router.push("/account");
     };
 
     const timer = setInterval(async () => {
       tries++;
       try {
         const res = await api.paymentStatus(id);
-        if (res.isPaid || res.status === "PAID") {
-          clearInterval(timer);
-          sessionStorage.removeItem("enzi.checkout.key");
-          clear();
-          router.push(`/order/${orderNumber}`);
-          return;
-        }
-        if (res.status === "FAILED") {
-          clearInterval(timer);
-          finishFail(res.outcome, res.message);
-          return;
-        }
-        if (res.stalePending) {
-          clearInterval(timer);
-          setPhase("pending");
-          return;
-        }
+        if (res.isPaid || res.status === "PAID") return done();
+        if (res.status === "FAILED") return done();
+        if (res.stalePending) return done();
       } catch {
         /* transient — keep polling */
       }
-      if (tries >= MAX_TRIES) {
-        clearInterval(timer);
-        setPhase("pending");
-      }
+      // Waited out the STK window with no resolution: the order is safe and
+      // sitting on the account page as "awaiting payment", so send them there.
+      if (tries >= MAX_TRIES) return done();
     }, 3000);
   }
 
-  function retryPayment() {
-    setFailInfo(null);
-    setError(null);
-    setPhase("form");
-  }
+
 
   if (items.length === 0 && phase === "form") {
     return (
@@ -277,86 +251,25 @@ export default function CheckoutPage() {
     );
   }
 
-  // --- payment failed / cancelled ---
-  if (phase === "failed" && failInfo) {
+  // --- STK waiting screen (shown only while polling; all outcomes redirect
+  //     to the account page, so there's no dead-end state here) ---
+  if (phase === "paying") {
     return (
       <div className="shell py-24">
         <div className="card animate-rise mx-auto max-w-lg p-10 text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-red-500/40 text-red-300">
-            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-            </svg>
-          </div>
-          <h1 className="display mt-6 text-2xl">{failInfo.title}</h1>
-          <p className="mt-3 text-muted">{failInfo.message}</p>
-          <p className="mt-2 text-sm text-faint">
-            Nothing was charged. Your order is saved and still needs payment.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <button onClick={retryPayment} className="btn-primary px-8">
-              Try again
-            </button>
-            <Link href="/cart" className="btn-ghost px-8">
-              Back to cart
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- STK waiting screen ---
-  if (phase === "paying" || phase === "pending") {
-    return (
-      <div className="shell py-24">
-        <div className="card mx-auto max-w-lg p-10 text-center">
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-indigo/40">
-            {phase === "paying" ? (
-              <span className="h-8 w-8 animate-spin rounded-full border-2 border-indigo border-t-transparent" />
-            ) : (
-              <span className="text-2xl">⏳</span>
-            )}
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-indigo border-t-transparent" />
           </div>
-          <h1 className="display mt-6 text-2xl">
-            {phase === "paying" ? "Check your phone" : "Still waiting"}
-          </h1>
+          <h1 className="display mt-6 text-2xl">Check your phone</h1>
           <p className="mt-3 text-muted">
-            {phase === "paying" ? (
-              <>
-                We’ve sent an M-Pesa prompt to{" "}
-                <span className="text-cloud">{normalizePhone(form.phone)}</span>.
-                Enter your PIN to pay {formatKes(total)}.
-              </>
-            ) : (
-              <>
-                We haven’t seen the payment yet. If you completed it, your order
-                is safe — check its status below.
-              </>
-            )}
+            We've sent an M-Pesa prompt to{" "}
+            <span className="text-cloud">{normalizePhone(form.phone)}</span>. Enter your PIN
+            to pay {formatKes(total)}.
           </p>
-          {phase === "pending" && (
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              {checkoutRequestId && (
-                <button
-                  onClick={() => {
-                    setPhase("paying");
-                    pollStatus(checkoutRequestId, currentOrderNumber.current);
-                  }}
-                  className="btn-primary px-8"
-                >
-                  Check again
-                </button>
-              )}
-              {currentOrderNumber.current && (
-                <Link
-                  href={`/order/${currentOrderNumber.current}`}
-                  className="btn-ghost px-8"
-                >
-                  View my order
-                </Link>
-              )}
-            </div>
-          )}
+          <p className="mt-4 text-sm text-faint">
+            Waiting for confirmation — this can take a few seconds. You'll be taken to your
+            orders once it's done.
+          </p>
         </div>
       </div>
     );

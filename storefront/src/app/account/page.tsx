@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAccount } from "@/lib/account";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
 import type { Order } from "@/lib/types";
+
+type MyOrder = Order & {
+  canPay?: boolean;
+  lastPaymentStatus?: string | null;
+  lastPaymentMessage?: string | null;
+};
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING_PAYMENT: "Awaiting payment",
@@ -19,21 +25,49 @@ const STATUS_LABEL: Record<string, string> = {
   REFUNDED: "Refunded",
 };
 
+function statusTone(status: string, isPaid: boolean): string {
+  if (status === "DELIVERED") return "text-whatsapp";
+  if (status === "CANCELLED" || status === "REFUNDED") return "text-red-300";
+  if (status === "PENDING_PAYMENT" && !isPaid) return "text-gold";
+  return "text-cloud";
+}
+
+const RETRY_COOLDOWN_S = 40;
+
 export default function AccountPage() {
   const router = useRouter();
   const { customer, ready, logout, refresh } = useAccount();
 
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [orders, setOrders] = useState<MyOrder[] | null>(null);
   const [tab, setTab] = useState<"orders" | "details">("orders");
 
   useEffect(() => {
     if (ready && !customer) router.replace("/account/login");
   }, [ready, customer, router]);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!customer) return;
     api.myOrders().then(setOrders).catch(() => setOrders([]));
   }, [customer]);
+
+  useEffect(() => { load(); }, [load]);
+
+  /**
+   * Poll while any order is still awaiting payment, so a confirmation that
+   * lands after the customer arrives here (the STK was slow, or they came
+   * straight from checkout) flips the status to paid without a manual refresh.
+   * Stops once nothing is pending.
+   */
+  const hasPending = (orders ?? []).some(
+    (o) => !o.isPaid && o.status === "PENDING_PAYMENT"
+  );
+  useEffect(() => {
+    if (!hasPending) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) load();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [hasPending, load]);
 
   if (!ready || !customer) {
     return (
@@ -87,33 +121,116 @@ export default function AccountPage() {
               </Link>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="stagger space-y-3">
               {orders.map((o) => (
-                <Link
-                  key={o.id}
-                  href={`/order/${o.orderNumber}`}
-                  className="card card-hover flex flex-wrap items-center justify-between gap-4 p-5"
-                >
-                  <div>
-                    <p className="font-medium text-white">{o.orderNumber}</p>
-                    <p className="text-xs text-muted">
-                      {new Date(o.createdAt).toLocaleDateString()} ·{" "}
-                      {o.items?.length ?? 0} item{o.items?.length === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-white">{formatKes(o.total)}</p>
-                    <p className="text-xs text-muted">
-                      {STATUS_LABEL[o.status] ?? o.status}
-                    </p>
-                  </div>
-                </Link>
+                <OrderRow key={o.id} order={o} onChanged={load} />
               ))}
             </div>
           )}
         </div>
       ) : (
         <DetailsPanel onSaved={refresh} />
+      )}
+    </div>
+  );
+}
+
+function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void }) {
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const [prompted, setPrompted] = useState(false);
+  const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const needsPayment = !order.isPaid && order.status === "PENDING_PAYMENT";
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    };
+  }, []);
+
+  function startCooldown() {
+    setCooldown(RETRY_COOLDOWN_S);
+    cooldownTimer.current = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1 && cooldownTimer.current) {
+          clearInterval(cooldownTimer.current);
+          cooldownTimer.current = null;
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  }
+
+  async function retry() {
+    setPaying(true);
+    setError(null);
+    try {
+      await api.retryOrderPayment(order.orderNumber);
+      // A fresh prompt is on its way to the phone. Start the 40s cooldown
+      // before another attempt is allowed — a second STK while the first is
+      // still live just confuses the customer and can double-charge.
+      setPrompted(true);
+      startCooldown();
+      // Give the payment a moment, then refresh so a fast confirmation shows.
+      setTimeout(onChanged, 6000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start the payment");
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <Link href={`/order/${order.orderNumber}`} className="min-w-0">
+          <p className="font-medium text-white">{order.orderNumber}</p>
+          <p className="text-xs text-muted">
+            {new Date(order.createdAt).toLocaleDateString()} ·{" "}
+            {order.items?.length ?? 0} item{order.items?.length === 1 ? "" : "s"}
+          </p>
+        </Link>
+        <div className="text-right">
+          <p className="font-medium text-white">{formatKes(order.total)}</p>
+          <p className={`text-xs ${statusTone(order.status, order.isPaid)}`}>
+            {order.isPaid ? "Paid" : STATUS_LABEL[order.status] ?? order.status}
+          </p>
+        </div>
+      </div>
+
+      {/* Payment status + retry, for orders that still need paying. */}
+      {needsPayment && (
+        <div className="mt-4 rounded-xl border border-gold/25 bg-gold/[0.04] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-gold">
+                {prompted
+                  ? "Prompt sent — enter your M-Pesa PIN on your phone."
+                  : order.lastPaymentStatus === "FAILED"
+                  ? order.lastPaymentMessage ?? "The last payment didn't go through."
+                  : "This order is waiting for payment."}
+              </p>
+              {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
+            </div>
+
+            <button
+              onClick={retry}
+              disabled={paying || cooldown > 0}
+              className="btn-primary shrink-0 px-6 text-sm"
+            >
+              {paying
+                ? "Sending…"
+                : cooldown > 0
+                ? `Retry in ${cooldown}s`
+                : prompted
+                ? "Send again"
+                : "Pay now"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
