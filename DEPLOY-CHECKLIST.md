@@ -1,63 +1,68 @@
-# Deploy checklist — Enzi v0.2.2
+# Deploy checklist — Enzi v0.2.3
 
-No schema change. Just redeploy all three services.
-
----
-
-## Payments: both gateways now shown together
-
-**Settings → Payments** lists M-Pesa and Kopo Kopo as two cards, always both
-visible:
-
-- The live one is marked **live now** (green).
-- A configured-but-not-live one shows **ready**.
-- An unconfigured one shows **not set up**.
-
-Each card carries its own **Make … live** button, so switching is always one tap
-— it no longer depends on first selecting the other gateway. Tap a card to load
-its credentials below; fill them in, test, then make it live. The switch button
-stays disabled until that gateway's required fields are filled.
-
-> If you previously saw only Daraja: that was the v0.1.9 layout plus a bug where
-> Kopo Kopo defaulted to disabled. Both are fixed. If Kopo Kopo still shows "not
-> set up", enter its Client ID, Client secret and Till number and it becomes
-> selectable.
+No schema change. Redeploy all three services.
 
 ---
 
-## Delivery areas
+## Why you only saw M-Pesa
 
-Three changes, all on **Delivery** (admin) and checkout (storefront):
+The tile code for both gateways was already correct in v0.2.2 — so what you were
+looking at was almost certainly an **older admin build still deployed**, or your
+browser serving a cached bundle. The admin is a compiled bundle; until the new
+build actually ships and the page is hard-refreshed, you see the previous layout.
 
-1. **Alphabetical.** Areas now list A–Z everywhere, not in the order you added
-   them — so a long list stays findable.
-2. **Search.** On checkout, once a method has more than six areas, a search box
-   appears next to "Which area?" so customers can type "Westl…" instead of
-   scrolling.
-3. **Delivery instructions.** Every delivery/parcel/agent method now has an
-   optional free-text field at checkout — exact building, landmark, gate code,
-   or an alternative phone number. It shows up highlighted in the order's
-   Delivery panel in the admin, so whoever packs and sends it sees it.
+Two things in this release make that impossible to be confused by again:
 
-Nothing to configure — these are live as soon as you deploy.
+1. **A version stamp** now shows at the bottom of the admin sidebar (e.g.
+   `v0.2.3`). After redeploying, glance there — if it doesn't say `0.2.3`, the
+   new build hasn't gone live yet and you're looking at an old one.
+2. **Payments is now genuinely tiles with switches**, matching what you asked
+   for.
+
+### After deploying
+
+1. Wait for the Railway **admin** service to finish redeploying.
+2. Open the dashboard and **hard-refresh** (Ctrl/Cmd + Shift + R).
+3. Check the sidebar footer reads `v0.2.3`.
+4. Go to **Settings → Payments**.
+
+---
+
+## Payments: two tiles, each with a switch
+
+You'll now see **M-Pesa** and **Kopo Kopo** side by side as tiles. Each shows:
+
+- A status badge — **active** (green), **ready**, or **not set up**.
+- A blurb of what it is.
+- An **on/off switch**.
+
+Only one is active at a time, because only one can process a given checkout —
+turning one on turns the other off. The active method's switch is on and locked,
+so you can't accidentally leave the shop with no way to take money.
+
+To enable Kopo Kopo:
+
+1. Tap the **Kopo Kopo** tile — its credential fields load below.
+2. Enter Client ID, Client secret and Till number (Kopo Kopo shows **ready**
+   once those three are in).
+3. **Test Kopo Kopo connection.**
+4. Flip its switch on. It becomes **active**; M-Pesa drops to **ready**.
+
+A tile that isn't configured shows **not set up** and its switch stays disabled
+until you fill in its details — that's the guard against switching to a gateway
+that can't actually charge.
 
 ---
 
 ## Redeploy
 
-1. **Backend** — redeploy.
-2. **Admin** — redeploy.
-3. **Storefront** — redeploy.
-
-No Railway variables, no `db:push`.
+Backend, admin, storefront. No Railway variables, no `db:push`.
 
 ---
 
 ## Worth checking
 
-- [ ] **Settings → Payments** shows both gateways; the live one is badged, and
-      the other has a working "Make … live" button.
-- [ ] Add a 7th area to a delivery method, then on checkout confirm the search
-      box appears and filters.
-- [ ] Place a test order with a delivery instruction and confirm it appears,
-      highlighted, in the order's Delivery panel in the admin.
+- [ ] Sidebar footer shows `v0.2.3` (proves the new build is live).
+- [ ] **Settings → Payments** shows two tiles, not one form.
+- [ ] Kopo Kopo tile shows **not set up** until you enter its three required
+      fields, then **ready**, then **active** once you flip its switch.

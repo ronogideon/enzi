@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { SettingsMap } from "@/lib/types";
-import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, Badge, Toggle, useAsync } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 
 type TabKey = "business" | "payments" | "sms" | "account";
@@ -253,7 +253,13 @@ function PaymentsPanel({
 
   const isConfigured = (keys: string[]) => keys.every((k) => settings[k]?.isSet);
 
-  async function makeLive(provider: "mpesa" | "kopokopo") {
+  /**
+   * Making a gateway "active" is just pointing payments.provider at it. Only
+   * one can be active because only one processes a given checkout — turning one
+   * on is what turns the other off, which is why the switches are mutually
+   * exclusive rather than two independent on/off flags.
+   */
+  async function activate(provider: "mpesa" | "kopokopo") {
     setSwitching(provider);
     setError(null);
     try {
@@ -277,76 +283,67 @@ function PaymentsPanel({
         </div>
       )}
 
-      <h2 className="font-display text-lg font-bold text-white">Payment gateway</h2>
+      <h2 className="font-display text-lg font-bold text-white">Payment methods</h2>
       <p className="mt-1 text-sm text-muted">
-        Both are shown below. Customers see the same M-PESA prompt either way — this is
-        about who you hold the merchant relationship with. One is live at a time; tap a
-        card to configure it, then make it live.
+        Customers see the same M-PESA prompt whichever you use — this is about who you hold
+        the merchant relationship with. One is active at a time; the switch turns a method
+        on, which turns the other off.
       </p>
 
-      {/* Both gateways, always visible. The live one is marked, and each card
-          carries its own "make live" action so switching never depends on
-          first changing some other selection. */}
-      <div className="mt-5 space-y-3">
+      {/* One tile per gateway, both always rendered. Each has its own switch;
+          tap the body to load its credentials below. */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {providers.map((p) => {
           const configured = isConfigured(p.requires);
-          const live = current === p.key;
+          const isActive = current === p.key;
           const isSelected = selected === p.key;
           return (
             <div
               key={p.key}
-              className={`rounded-xl border p-4 transition-colors ${
-                live
-                  ? "border-whatsapp/40 bg-whatsapp/[0.04]"
+              className={`flex flex-col rounded-xl border p-4 transition-colors ${
+                isActive
+                  ? "border-whatsapp/50 bg-whatsapp/[0.05]"
                   : isSelected
                   ? "border-white/40 bg-ink-hover/40"
-                  : "border-ink-line"
+                  : "border-ink-line hover:border-white/20"
               }`}
             >
               <button
                 onClick={() => setSelected(p.key)}
-                className="flex w-full items-start gap-3 text-left"
+                className="flex-1 text-left"
               >
-                <span
-                  className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
-                    isSelected ? "border-white" : "border-ink-line"
-                  }`}
-                >
-                  {isSelected && <span className="h-2 w-2 rounded-full bg-white" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-white">{p.name}</span>
-                    {live ? (
-                      <Badge tone="green">live now</Badge>
-                    ) : configured ? (
-                      <Badge tone="muted">ready</Badge>
-                    ) : (
-                      <Badge tone="gold">not set up</Badge>
-                    )}
-                  </div>
-                  <p className="mt-1 text-sm text-muted">{p.blurb}</p>
-                </div>
-              </button>
-
-              {/* Per-card switch control. Present on the non-live gateway
-                  whenever it's ready, so making a switch is always one tap and
-                  never hidden behind selecting something first. */}
-              {!live && (
-                <div className="mt-3 flex items-center gap-3 border-t border-ink-line/60 pt-3">
-                  <button
-                    className="btn-primary text-xs"
-                    onClick={() => makeLive(p.key)}
-                    disabled={switching !== null || !configured}
-                  >
-                    {switching === p.key ? "Switching…" : `Make ${p.name} live`}
-                  </button>
-                  {!configured && (
-                    <span className="text-xs text-faint">
-                      Fill in its credentials below first
-                    </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white">{p.name}</span>
+                  {configured ? (
+                    <Badge tone={isActive ? "green" : "muted"}>
+                      {isActive ? "active" : "ready"}
+                    </Badge>
+                  ) : (
+                    <Badge tone="gold">not set up</Badge>
                   )}
                 </div>
+                <p className="mt-1.5 text-sm text-muted">{p.blurb}</p>
+              </button>
+
+              {/* The enable switch. Flipping on an inactive-but-ready method
+                  makes it active; the live one's switch is on and disabled,
+                  because turning "the only payment method" off would leave the
+                  shop unable to take money. */}
+              <div className="mt-3 flex items-center justify-between border-t border-ink-line/60 pt-3">
+                <span className="text-xs text-muted">
+                  {isActive ? "On" : configured ? "Off" : "Needs setup"}
+                </span>
+                <Toggle
+                  checked={isActive}
+                  disabled={isActive || !configured || switching !== null}
+                  onChange={() => activate(p.key)}
+                  label={`Use ${p.name}`}
+                />
+              </div>
+              {!configured && !isActive && (
+                <p className="mt-2 text-xs text-faint">
+                  Select this tile and fill in its details below to enable it.
+                </p>
               )}
             </div>
           );

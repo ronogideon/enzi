@@ -5,6 +5,10 @@ import { useIdleTimeout, IdleWarning } from "@/lib/session";
 import { Icon, type IconName } from "@/components/Icons";
 import type { Role } from "@/lib/types";
 
+// Injected at build time from package.json (see vite.config define).
+declare const __APP_VERSION__: string;
+const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
+
 interface NavItem {
   to: string;
   label: string;
@@ -157,6 +161,9 @@ export function Layout() {
         <Icon.Logout className="h-4 w-4" />
         Sign out
       </button>
+      {/* Build stamp — lets you confirm at a glance which version is actually
+          deployed, instead of guessing whether a change shipped. */}
+      <p className="mt-3 text-[10px] text-faint">v{APP_VERSION}</p>
     </div>
   );
 
