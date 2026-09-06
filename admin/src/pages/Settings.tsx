@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { SettingsMap } from "@/lib/types";
-import { PageHeader, Spinner, EmptyState, Badge, Toggle, useAsync } from "@/components/ui";
+import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 
 type TabKey = "business" | "payments" | "sms" | "account";
@@ -187,15 +187,7 @@ export default function Settings() {
           onSaved={settings.reload}
         />
       ) : tab === "payments" ? (
-        <SettingsForm
-          title="M-Pesa (Daraja)"
-          description="From your Safaricom Daraja app. Saved here, they take effect on the very next checkout — no redeploy needed."
-          fields={PAYMENTS}
-          settings={settings.data!}
-          onSaved={settings.reload}
-          onTest={api.testMpesa}
-          testLabel="Test M-Pesa connection"
-        />
+        <PaymentsPanel settings={settings.data!} onSaved={settings.reload} />
       ) : (
         <SettingsForm
           title="Talk Sasa (SMS)"
@@ -227,7 +219,9 @@ function PaymentsPanel({
   onSaved: () => void;
 }) {
   const current = settings["payments.provider"]?.value === "kopokopo" ? "kopokopo" : "mpesa";
-  const [selected, setSelected] = useState<"mpesa" | "kopokopo">(current);
+
+  // null = showing the list; a key = showing that method's setup page.
+  const [openKey, setOpenKey] = useState<"mpesa" | "kopokopo" | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -254,10 +248,9 @@ function PaymentsPanel({
   const isConfigured = (keys: string[]) => keys.every((k) => settings[k]?.isSet);
 
   /**
-   * Making a gateway "active" is just pointing payments.provider at it. Only
-   * one can be active because only one processes a given checkout — turning one
-   * on is what turns the other off, which is why the switches are mutually
-   * exclusive rather than two independent on/off flags.
+   * Activating a method is just pointing payments.provider at it. Only one can
+   * be active because only one processes a given checkout, so turning one on is
+   * what turns the other off.
    */
   async function activate(provider: "mpesa" | "kopokopo") {
     setSwitching(provider);
@@ -266,14 +259,89 @@ function PaymentsPanel({
       await api.setSetting("payments.provider", provider);
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't switch gateway");
+      setError(e instanceof Error ? e.message : "Couldn't switch payment method");
     } finally {
       setSwitching(null);
     }
   }
 
-  const active = providers.find((p) => p.key === selected)!;
+  const open = providers.find((p) => p.key === openKey) ?? null;
 
+  // --- expanded setup page for one method ---------------------------------
+  if (open) {
+    const configured = isConfigured(open.requires);
+    const isActive = current === open.key;
+    return (
+      <div className="max-w-2xl">
+        <button
+          onClick={() => setOpenKey(null)}
+          className="mb-5 inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-cloud"
+        >
+          <Icon.ChevronUp className="h-4 w-4 -rotate-90" />
+          All payment methods
+        </button>
+
+        {error && (
+          <div className="mb-5 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <Icon.Alert className="mt-0.5 h-4 w-4" />
+            {error}
+          </div>
+        )}
+
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <h2 className="font-display text-lg font-bold text-white">{open.name}</h2>
+          {configured ? (
+            <Badge tone={isActive ? "green" : "muted"}>{isActive ? "active" : "ready"}</Badge>
+          ) : (
+            <Badge tone="gold">not set up</Badge>
+          )}
+        </div>
+
+        <SettingsForm
+          title="Credentials"
+          description="Saved encrypted in your database and never shown again in full. They take effect on the very next checkout — no redeploy."
+          fields={open.fields}
+          settings={settings}
+          onSaved={onSaved}
+          onTest={open.test}
+          testLabel={`Test ${open.name} connection`}
+        />
+
+        {/* Activate from inside the setup page, once it's configured. */}
+        {!isActive && (
+          <div className="mt-6 rounded-xl border border-ink-line p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">
+                  Use {open.name} for checkout
+                </p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {configured
+                    ? "Test the connection first, then switch. This turns the other method off."
+                    : "Fill in and save the required credentials above to enable this."}
+                </p>
+              </div>
+              <button
+                className="btn-primary shrink-0"
+                onClick={() => activate(open.key)}
+                disabled={!configured || switching !== null}
+              >
+                {switching === open.key ? "Activating…" : "Make active"}
+              </button>
+            </div>
+          </div>
+        )}
+        {isActive && (
+          <p className="mt-6 flex items-center gap-2 text-sm text-whatsapp">
+            <Icon.Check className="h-4 w-4" />
+            This is the active payment method.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // --- the list -----------------------------------------------------------
   return (
     <div className="max-w-2xl">
       {error && (
@@ -285,34 +353,30 @@ function PaymentsPanel({
 
       <h2 className="font-display text-lg font-bold text-white">Payment methods</h2>
       <p className="mt-1 text-sm text-muted">
-        Customers see the same M-PESA prompt whichever you use — this is about who you hold
-        the merchant relationship with. One is active at a time; the switch turns a method
-        on, which turns the other off.
+        One method is active at a time — customers see the same M-PESA prompt either way.
+        Tap a method to set it up, test it, and switch to it.
       </p>
 
-      {/* One tile per gateway, both always rendered. Each has its own switch;
-          tap the body to load its credentials below. */}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 divide-y divide-ink-line overflow-hidden rounded-xl border border-ink-line">
         {providers.map((p) => {
           const configured = isConfigured(p.requires);
           const isActive = current === p.key;
-          const isSelected = selected === p.key;
           return (
-            <div
+            <button
               key={p.key}
-              className={`flex flex-col rounded-xl border p-4 transition-colors ${
-                isActive
-                  ? "border-whatsapp/50 bg-whatsapp/[0.05]"
-                  : isSelected
-                  ? "border-white/40 bg-ink-hover/40"
-                  : "border-ink-line hover:border-white/20"
-              }`}
+              onClick={() => setOpenKey(p.key)}
+              className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink-hover/50"
             >
-              <button
-                onClick={() => setSelected(p.key)}
-                className="flex-1 text-left"
+              <span
+                className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${
+                  isActive ? "bg-whatsapp/15 text-whatsapp" : "bg-ink-800 text-muted"
+                }`}
               >
-                <div className="flex items-center justify-between gap-2">
+                <Icon.Money className="h-5 w-5" />
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-white">{p.name}</span>
                   {configured ? (
                     <Badge tone={isActive ? "green" : "muted"}>
@@ -322,47 +386,20 @@ function PaymentsPanel({
                     <Badge tone="gold">not set up</Badge>
                   )}
                 </div>
-                <p className="mt-1.5 text-sm text-muted">{p.blurb}</p>
-              </button>
-
-              {/* The enable switch. Flipping on an inactive-but-ready method
-                  makes it active; the live one's switch is on and disabled,
-                  because turning "the only payment method" off would leave the
-                  shop unable to take money. */}
-              <div className="mt-3 flex items-center justify-between border-t border-ink-line/60 pt-3">
-                <span className="text-xs text-muted">
-                  {isActive ? "On" : configured ? "Off" : "Needs setup"}
-                </span>
-                <Toggle
-                  checked={isActive}
-                  disabled={isActive || !configured || switching !== null}
-                  onChange={() => activate(p.key)}
-                  label={`Use ${p.name}`}
-                />
+                <p className="mt-0.5 truncate text-sm text-muted">{p.blurb}</p>
               </div>
-              {!configured && !isActive && (
-                <p className="mt-2 text-xs text-faint">
-                  Select this tile and fill in its details below to enable it.
-                </p>
-              )}
-            </div>
+
+              <Icon.ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-faint" />
+            </button>
           );
         })}
       </div>
 
-      {/* Credentials for whichever card is selected. */}
-      <div className="mt-8 border-t border-ink-line pt-8">
-        <SettingsForm
-          title={`${active.name} credentials`}
-          description="Saved encrypted in your database and never shown again in full. They take effect on the very next checkout — no redeploy."
-          fields={active.fields}
-          settings={settings}
-          onSaved={onSaved}
-          onTest={active.test}
-          testLabel={`Test ${active.name} connection`}
-        />
-      </div>
-
+      <p className="mt-4 text-xs text-faint">
+        Tap a method to enter its keys and activate it. The active one can't be switched
+        off directly — switching to the other is what changes it, so the shop always has a
+        way to take payment.
+      </p>
     </div>
   );
 }

@@ -1,68 +1,68 @@
-# Deploy checklist — Enzi v0.2.3
+# Deploy checklist — Enzi v0.2.4
 
-No schema change. Redeploy all three services.
-
----
-
-## Why you only saw M-Pesa
-
-The tile code for both gateways was already correct in v0.2.2 — so what you were
-looking at was almost certainly an **older admin build still deployed**, or your
-browser serving a cached bundle. The admin is a compiled bundle; until the new
-build actually ships and the page is hard-refreshed, you see the previous layout.
-
-Two things in this release make that impossible to be confused by again:
-
-1. **A version stamp** now shows at the bottom of the admin sidebar (e.g.
-   `v0.2.3`). After redeploying, glance there — if it doesn't say `0.2.3`, the
-   new build hasn't gone live yet and you're looking at an old one.
-2. **Payments is now genuinely tiles with switches**, matching what you asked
-   for.
-
-### After deploying
-
-1. Wait for the Railway **admin** service to finish redeploying.
-2. Open the dashboard and **hard-refresh** (Ctrl/Cmd + Shift + R).
-3. Check the sidebar footer reads `v0.2.3`.
-4. Go to **Settings → Payments**.
+No schema change. Redeploy admin (backend and storefront unchanged, but no harm
+redeploying them).
 
 ---
 
-## Payments: two tiles, each with a switch
+## This was my bug — here's what happened
 
-You'll now see **M-Pesa** and **Kopo Kopo** side by side as tiles. Each shows:
+Your screenshot showed v0.2.4's predecessor running correctly (the version stamp
+read v0.2.3), but still showing only the M-Pesa form. That was right: when I
+rebuilt the payments tile component in the last releases, I never actually
+**wired the Payments tab to use it** — the tab kept rendering the old single
+M-Pesa form directly. The new component existed but nothing called it.
 
-- A status badge — **active** (green), **ready**, or **not set up**.
-- A blurb of what it is.
-- An **on/off switch**.
+Fixed. The proof: the string "Kopo Kopo" is now compiled into the admin bundle,
+which it demonstrably wasn't before.
 
-Only one is active at a time, because only one can process a given checkout —
-turning one on turns the other off. The active method's switch is on and locked,
-so you can't accidentally leave the shop with no way to take money.
+---
 
-To enable Kopo Kopo:
+## What Payments looks like now
 
-1. Tap the **Kopo Kopo** tile — its credential fields load below.
-2. Enter Client ID, Client secret and Till number (Kopo Kopo shows **ready**
-   once those three are in).
+Exactly what you asked for — **a list, opening an expanded setup page:**
+
+1. **Settings → Payments** shows a list of payment methods:
+   - **M-Pesa (Daraja)**
+   - **Kopo Kopo**
+
+   Each row shows an icon, its name, a one-line description, and a status badge:
+   **active** (green), **ready**, or **not set up**.
+
+2. **Tap a method** → its full setup page opens: all the credential fields, a
+   **Test connection** button, and a **Make active** button.
+
+3. **"← All payment methods"** at the top takes you back to the list.
+
+Only one method is active at a time — activating one switches the other off, so
+the shop always has a working way to take payment. A method that isn't
+configured shows **not set up**, and its **Make active** button stays disabled
+until you've filled in and saved its required fields.
+
+### To turn on Kopo Kopo
+
+1. Payments → tap **Kopo Kopo**.
+2. Enter Client ID, Client secret, Till number (and the API key + callback URL
+   for live use).
 3. **Test Kopo Kopo connection.**
-4. Flip its switch on. It becomes **active**; M-Pesa drops to **ready**.
-
-A tile that isn't configured shows **not set up** and its switch stays disabled
-until you fill in its details — that's the guard against switching to a gateway
-that can't actually charge.
+4. **Make active.** It becomes active; M-Pesa drops to "ready" but keeps its
+   settings.
 
 ---
 
-## Redeploy
+## After deploying
 
-Backend, admin, storefront. No Railway variables, no `db:push`.
+1. Let the Railway **admin** service finish.
+2. Hard-refresh the dashboard (Ctrl/Cmd + Shift + R).
+3. Sidebar footer should read **v0.2.4**.
+4. **Settings → Payments** is now a two-row list, not a form.
 
 ---
 
 ## Worth checking
 
-- [ ] Sidebar footer shows `v0.2.3` (proves the new build is live).
-- [ ] **Settings → Payments** shows two tiles, not one form.
-- [ ] Kopo Kopo tile shows **not set up** until you enter its three required
-      fields, then **ready**, then **active** once you flip its switch.
+- [ ] Sidebar reads v0.2.4.
+- [ ] Payments shows a list of two methods.
+- [ ] Tapping Kopo Kopo opens its setup page; the back link returns to the list.
+- [ ] Kopo Kopo's "Make active" is disabled until its three required fields are
+      saved.
