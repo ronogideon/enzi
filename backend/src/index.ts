@@ -6,7 +6,7 @@ import { encryptStoredSecrets } from "./modules/settings/settings.service";
 const app = createApp();
 
 app.listen(env.port, "0.0.0.0", async () => {
-  console.log(`[enzi] v0.2.4 listening on :${env.port} (${env.nodeEnv})`);
+  console.log(`[enzi] v0.2.5 listening on :${env.port} (${env.nodeEnv})`);
   console.log(
     `[enzi] CORS: ${
       env.corsOrigins.length

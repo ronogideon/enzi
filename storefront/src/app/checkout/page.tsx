@@ -3,13 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRef } from "react";
 import { useCart } from "@/lib/cart";
 import { useAccount, normalizePhone, isValidPhone as validPhone } from "@/lib/account";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
 import type { DeliveryMethod, PricedCart } from "@/lib/types";
 
-type Phase = "form" | "paying" | "pending";
+type Phase = "form" | "paying" | "pending" | "failed";
+
+interface FailInfo {
+  title: string;
+  message: string;
+}
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -34,6 +40,21 @@ export default function CheckoutPage() {
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<string | null>(null);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+  const [failInfo, setFailInfo] = useState<FailInfo | null>(null);
+  // A stable key for this checkout attempt. Persisted in sessionStorage so a
+  // refresh mid-payment reuses it and the backend returns the SAME order rather
+  // than creating a duplicate. Cleared once the order is placed.
+  const idempotencyKey = useRef<string>("");
+  if (!idempotencyKey.current) {
+    const stored = typeof window !== "undefined"
+      ? sessionStorage.getItem("enzi.checkout.key")
+      : null;
+    idempotencyKey.current =
+      stored ||
+      `co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    if (typeof window !== "undefined")
+      sessionStorage.setItem("enzi.checkout.key", idempotencyKey.current);
+  }
   const [prefilled, setPrefilled] = useState(false);
   const [existingAccount, setExistingAccount] = useState<{ name: string | null } | null>(null);
 
@@ -156,11 +177,13 @@ export default function CheckoutPage() {
                 instructions: form.instructions.trim() || undefined,
               }
             : undefined,
+        idempotencyKey: idempotencyKey.current,
       });
 
       // Pay-on-delivery path (POD method, customer didn't choose pay-now):
       // order is already CONFIRMED — straight to the receipt.
       if (!requiresPayment && !willPayNow) {
+        sessionStorage.removeItem("enzi.checkout.key");
         clear();
         router.push(`/order/${order.orderNumber}`);
         return;
@@ -177,32 +200,63 @@ export default function CheckoutPage() {
     }
   }
 
+  /**
+   * Poll the backend until the payment resolves. The backend itself queries
+   * Daraja directly when a callback is slow or misconfigured, so this resolves
+   * even if the webhook never fires. STK prompts live for ~60s, so we poll for
+   * a bit beyond that before offering a manual re-check.
+   */
   function pollStatus(id: string, orderNumber: string) {
     let tries = 0;
+    const MAX_TRIES = 28; // ~84s at 3s
+
+    const finishFail = (outcome: string, message: string | null) => {
+      const titles: Record<string, string> = {
+        cancelled: "Payment cancelled",
+        timeout: "Prompt timed out",
+        wrong_pin: "Wrong PIN",
+        insufficient: "Insufficient balance",
+        failed: "Payment didn't go through",
+      };
+      setFailInfo({
+        title: titles[outcome] ?? "Payment didn't go through",
+        message:
+          message ??
+          "The payment didn't complete. Your order is saved — you can try paying again.",
+      });
+      setPhase("failed");
+    };
+
     const timer = setInterval(async () => {
       tries++;
       try {
         const res = await api.paymentStatus(id);
         if (res.isPaid || res.status === "PAID") {
           clearInterval(timer);
+          sessionStorage.removeItem("enzi.checkout.key");
           clear();
           router.push(`/order/${orderNumber}`);
           return;
         }
         if (res.status === "FAILED") {
           clearInterval(timer);
-          setError("Payment failed or was cancelled. You can try again.");
-          setPhase("form");
+          finishFail(res.outcome, res.message);
           return;
         }
       } catch {
-        /* keep polling */
+        /* transient — keep polling */
       }
-      if (tries >= 20) {
+      if (tries >= MAX_TRIES) {
         clearInterval(timer);
-        setPhase("pending"); // give them a manual way forward
+        setPhase("pending");
       }
     }, 3000);
+  }
+
+  function retryPayment() {
+    setFailInfo(null);
+    setError(null);
+    setPhase("form");
   }
 
   if (items.length === 0 && phase === "form") {
@@ -212,6 +266,34 @@ export default function CheckoutPage() {
         <Link href="/shop" className="btn-primary mt-6 inline-flex px-8">
           Browse products
         </Link>
+      </div>
+    );
+  }
+
+  // --- payment failed / cancelled ---
+  if (phase === "failed" && failInfo) {
+    return (
+      <div className="shell py-24">
+        <div className="card animate-rise mx-auto max-w-lg p-10 text-center">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-red-500/40 text-red-300">
+            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 className="display mt-6 text-2xl">{failInfo.title}</h1>
+          <p className="mt-3 text-muted">{failInfo.message}</p>
+          <p className="mt-2 text-sm text-faint">
+            Nothing was charged. Your order is saved and still needs payment.
+          </p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button onClick={retryPayment} className="btn-primary px-8">
+              Try again
+            </button>
+            <Link href="/cart" className="btn-ghost px-8">
+              Back to cart
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

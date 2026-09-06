@@ -136,3 +136,77 @@ export function parseStkCallback(body: any) {
     phone: meta("PhoneNumber")?.toString(),
   };
 }
+
+/**
+ * Human-readable meaning of a Daraja STK result code. These are the codes
+ * Safaricom actually returns on the callback, translated into something a
+ * customer staring at a checkout screen can act on.
+ */
+export function describeMpesaResult(code: number | null | undefined): {
+  outcome: "success" | "cancelled" | "timeout" | "wrong_pin" | "insufficient" | "failed";
+  message: string;
+} {
+  switch (code) {
+    case 0:
+      return { outcome: "success", message: "Payment received. Thank you!" };
+    case 1032:
+      return { outcome: "cancelled", message: "You cancelled the payment prompt." };
+    case 1037:
+      return {
+        outcome: "timeout",
+        message: "The prompt timed out — it wasn't answered in time. Try again.",
+      };
+    case 2001:
+      return { outcome: "wrong_pin", message: "The M-PESA PIN entered was wrong. Try again." };
+    case 1:
+      return {
+        outcome: "insufficient",
+        message: "Not enough balance in the M-PESA account. Top up and try again.",
+      };
+    default:
+      return {
+        outcome: "failed",
+        message: "The payment didn't go through. You can try again.",
+      };
+  }
+}
+
+/**
+ * Ask Daraja directly whether an STK request succeeded, instead of waiting for
+ * the callback. This is the safety net for when the callback URL is
+ * misconfigured or the callback is slow: the checkout can poll this and still
+ * confirm the payment.
+ */
+export async function queryStkStatus(checkoutRequestId: string): Promise<{
+  resultCode: number | null;
+  resultDesc: string | null;
+} | null> {
+  const cfg = await mpesaConfig();
+  if (!cfg.consumerKey || !cfg.shortcode || !cfg.passkey) return null;
+
+  const token = await getAccessToken(cfg);
+  const ts = timestamp();
+  const password = Buffer.from(`${cfg.shortcode}${cfg.passkey}${ts}`).toString("base64");
+
+  try {
+    const { data } = await axios.post(
+      `${hostFor(cfg.env)}/mpesa/stkpushquery/v1/query`,
+      {
+        BusinessShortCode: cfg.shortcode,
+        Password: password,
+        Timestamp: ts,
+        CheckoutRequestID: checkoutRequestId,
+      },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
+    );
+    // ResultCode comes back as a string here, unlike on the callback.
+    const rc = data?.ResultCode;
+    return {
+      resultCode: rc === undefined || rc === null ? null : Number(rc),
+      resultDesc: data?.ResultDesc ?? null,
+    };
+  } catch (e: any) {
+    // "still being processed" is reported as an error; treat it as pending.
+    return null;
+  }
+}

@@ -15,6 +15,7 @@ export interface PlaceOrderInput {
   deliveryZoneId?: string;
   deliveryDetails?: Prisma.InputJsonValue;
   customerId?: string; // set when a signed-in customer checks out
+  idempotencyKey?: string;
 }
 
 export interface PlaceOrderResult {
@@ -66,6 +67,26 @@ export function loadOrder(id: string) {
 export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
   const phone = normalizePhone(input.phone);
   if (!isValidKePhone(phone)) throw new HttpError(400, "Invalid Kenyan phone number");
+
+  /**
+   * Idempotency. The storefront sends a stable key per checkout attempt, so a
+   * refresh, a back-then-forward, or a double-tapped "Pay" button all resolve
+   * to the SAME order instead of stacking duplicates that inflate the day's
+   * numbers and make the packing queue lie. If we've seen this key, return the
+   * order we already made.
+   */
+  if (input.idempotencyKey) {
+    const existing = await prisma.order.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) {
+      return {
+        order: await loadOrder(existing.id),
+        requiresPayment:
+          !existing.isPaid && existing.status === "PENDING_PAYMENT",
+      };
+    }
+  }
 
   const method = await prisma.deliveryMethod.findFirst({
     where: { id: input.deliveryMethodId, active: true },
@@ -133,6 +154,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     const created = await tx.order.create({
       data: {
         orderNumber,
+        idempotencyKey: input.idempotencyKey ?? null,
         customerId: customer.id,
         tier,
         status,

@@ -313,7 +313,11 @@ model DeliveryZone {
 
 model Order {
   id          String      @id @default(cuid())
-  orderNumber String      @unique // human-facing, e.g. ENZ-2026-000123
+  orderNumber String      @unique
+  /// Set by the storefront per checkout attempt. A repeated submit with the
+  /// same key returns the existing order rather than creating a duplicate —
+  /// which is what a page refresh or a double-tap on "Pay" used to do.
+  idempotencyKey String?  @unique // human-facing, e.g. ENZ-2026-000123
 
   customerId  String
   customer    Customer    @relation(fields: [customerId], references: [id])

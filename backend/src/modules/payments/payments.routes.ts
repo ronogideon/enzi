@@ -3,7 +3,12 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { HttpError } from "../../middleware/error";
 import { toKes } from "../../lib/money";
-import { initiateStkPush, parseStkCallback } from "./mpesa.service";
+import {
+  initiateStkPush,
+  parseStkCallback,
+  describeMpesaResult,
+  queryStkStatus,
+} from "./mpesa.service";
 import {
   initiateKopokopoStk,
   parseKopokopoWebhook,
@@ -136,6 +141,8 @@ paymentsRouter.post(
     if (payment.status === "PAID") return; // duplicate delivery
 
     const success = parsed.resultCode === 0;
+    // Turn the numeric code into something the customer can read and act on.
+    const described = describeMpesaResult(parsed.resultCode);
     await prisma.payment.update({
       where: { id: payment.id },
       data: {
@@ -143,7 +150,8 @@ paymentsRouter.post(
         mpesaReceipt: parsed.mpesaReceipt,
         receiptRef: parsed.mpesaReceipt,
         resultCode: parsed.resultCode,
-        resultDesc: parsed.resultDesc,
+        // Prefer our friendly message; fall back to Safaricom's own text.
+        resultDesc: described.message ?? parsed.resultDesc,
         rawCallback: req.body,
       },
     });
@@ -223,20 +231,59 @@ paymentsRouter.get(
 
     // Matches either gateway: Daraja's CheckoutRequestID or Kopo Kopo's
     // payment request id both land in providerRef.
-    const payment = await prisma.payment.findFirst({
+    let payment = await prisma.payment.findFirst({
       where: { OR: [{ providerRef: ref }, { checkoutRequestId: ref }] },
       include: { order: true },
       orderBy: { createdAt: "desc" },
     });
     if (!payment) throw new HttpError(404, "Payment not found");
 
+    /**
+     * Safety net: if the payment is still PENDING and it's an M-Pesa request,
+     * ask Daraja directly rather than waiting on a callback that may never
+     * arrive (e.g. the callback URL is pointed at the wrong host). This is what
+     * lets the customer's screen resolve even when the webhook is broken.
+     */
+    if (
+      payment.status === "PENDING" &&
+      payment.provider === "MPESA" &&
+      payment.checkoutRequestId
+    ) {
+      const queried = await queryStkStatus(payment.checkoutRequestId);
+      if (queried && queried.resultCode !== null) {
+        const success = queried.resultCode === 0;
+        const described = describeMpesaResult(queried.resultCode);
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: success ? "PAID" : "FAILED",
+            resultCode: queried.resultCode,
+            resultDesc: described.message ?? queried.resultDesc,
+          },
+        });
+        if (success) await markOrderPaid(payment.orderId);
+        payment = (await prisma.payment.findUnique({
+          where: { id: payment.id },
+          include: { order: true },
+        }))!;
+      }
+    }
+
+    const described =
+      payment.provider === "MPESA"
+        ? describeMpesaResult(payment.resultCode)
+        : { outcome: payment.status === "PAID" ? "success" : payment.status === "FAILED" ? "failed" : "pending", message: payment.resultDesc ?? null };
+
     res.json({
       status: payment.status,
+      // A machine-readable outcome the storefront can branch on, plus the
+      // human message. "pending" while we're still waiting.
+      outcome: payment.status === "PENDING" ? "pending" : (described as any).outcome,
       provider: payment.provider,
       isPaid: payment.order.isPaid,
       orderNumber: payment.order.orderNumber,
       receipt: payment.receiptRef ?? payment.mpesaReceipt ?? null,
-      message: payment.resultDesc ?? null,
+      message: (described as any).message ?? payment.resultDesc ?? null,
     });
   })
 );

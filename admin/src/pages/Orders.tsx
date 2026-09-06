@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatKes } from "@/lib/money";
@@ -62,6 +62,19 @@ export default function Orders() {
     [filter, query]
   );
   const counts = useAsync(() => api.orderCounts(), []);
+
+  // Live-ish list: refresh every 20s so a payment confirmation or a colleague
+  // packing an order appears without anyone hitting reload. Skipped while the
+  // tab is in the background.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      orders.reload();
+      counts.reload();
+    }, 20000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, query]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function refreshAll() {
@@ -265,6 +278,19 @@ function OrderModal({
   const { can } = useAuth();
   const detail = useAsync(() => api.order(orderId), [orderId]);
   const [busy, setBusy] = useState(false);
+
+  // While an order is waiting on payment, poll so the "paid" state appears the
+  // moment the callback lands — no manual refresh, which is what made a
+  // successful payment look like nothing happened.
+  useEffect(() => {
+    const o = detail.data;
+    if (!o || o.isPaid || o.status === "CANCELLED" || o.status === "DELIVERED") return;
+    const timer = setInterval(() => {
+      if (!document.hidden) detail.reload();
+    }, 6000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.data?.isPaid, detail.data?.status]);
   const [error, setError] = useState<string | null>(null);
   const [tracking, setTracking] = useState<string | null>(null);
   const [notes, setNotes] = useState<string | null>(null);

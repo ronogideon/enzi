@@ -1,68 +1,87 @@
-# Deploy checklist — Enzi v0.2.4
+# Deploy checklist — Enzi v0.2.5
 
-No schema change. Redeploy admin (backend and storefront unchanged, but no harm
-redeploying them).
-
----
-
-## This was my bug — here's what happened
-
-Your screenshot showed v0.2.4's predecessor running correctly (the version stamp
-read v0.2.3), but still showing only the M-Pesa form. That was right: when I
-rebuilt the payments tile component in the last releases, I never actually
-**wired the Payments tab to use it** — the tab kept rendering the old single
-M-Pesa form directly. The new component existed but nothing called it.
-
-Fixed. The proof: the string "Kopo Kopo" is now compiled into the admin bundle,
-which it demonstrably wasn't before.
+Schema change (order idempotency key). Run `npm run db:push`.
 
 ---
 
-## What Payments looks like now
+## FIRST — fix the callback URL. This is why nothing updates.
 
-Exactly what you asked for — **a list, opening an expanded setup page:**
+You set it to:
 
-1. **Settings → Payments** shows a list of payment methods:
-   - **M-Pesa (Daraja)**
-   - **Kopo Kopo**
+```
+https://enzipackaging.com/api/payments/kopokopo/callback     ← WRONG
+```
 
-   Each row shows an icon, its name, a one-line description, and a status badge:
-   **active** (green), **ready**, or **not set up**.
+That's your **storefront**. It has no `/api` routes, so Kopo Kopo posts the
+payment confirmation there, gets a 404, and the order is never marked paid. The
+payment succeeds on the customer's phone but your system never hears about it.
 
-2. **Tap a method** → its full setup page opens: all the credential fields, a
-   **Test connection** button, and a **Make active** button.
+It must point at the **backend**:
 
-3. **"← All payment methods"** at the top takes you back to the list.
+```
+https://api.enzipackaging.com/api/payments/kopokopo/callback  ← CORRECT
+```
 
-Only one method is active at a time — activating one switches the other off, so
-the shop always has a working way to take payment. A method that isn't
-configured shows **not set up**, and its **Make active** button stays disabled
-until you've filled in and saved its required fields.
+Change it in **two places** and they must match:
 
-### To turn on Kopo Kopo
+1. **Admin → Settings → Payments → Kopo Kopo → Callback URL**
+2. Your **Kopo Kopo dashboard** webhook settings
 
-1. Payments → tap **Kopo Kopo**.
-2. Enter Client ID, Client secret, Till number (and the API key + callback URL
-   for live use).
-3. **Test Kopo Kopo connection.**
-4. **Make active.** It becomes active; M-Pesa drops to "ready" but keeps its
-   settings.
+Until both say `api.enzipackaging.com`, confirmations can't arrive.
+
+> Even with the URL fixed, this release adds a safety net: the customer's
+> checkout now also asks the gateway directly whether payment went through, so
+> a status resolves even if a webhook is delayed. But fix the URL — the direct
+> query is a backstop, not a substitute, and Kopo Kopo relies on the webhook.
 
 ---
 
-## After deploying
+## Deploy
 
-1. Let the Railway **admin** service finish.
-2. Hard-refresh the dashboard (Ctrl/Cmd + Shift + R).
-3. Sidebar footer should read **v0.2.4**.
-4. **Settings → Payments** is now a two-row list, not a form.
+1. **Backend** — redeploy, then `npm run db:push` (adds the idempotency key).
+2. **Admin** — redeploy.
+3. **Storefront** — redeploy.
+
+---
+
+## What's fixed
+
+### Payment status now shows immediately, with a reason
+
+The checkout waiting screen resolves to one of:
+
+- **Paid** → straight to the receipt.
+- **Cancelled** — you cancelled the prompt.
+- **Prompt timed out** — not answered in time.
+- **Wrong PIN.**
+- **Insufficient balance.**
+
+Each is its own screen with a **Try again** button. No more staring at a spinner
+that never resolves.
+
+The admin order view now **auto-refreshes** — an unpaid order polls every few
+seconds, so "paid" appears the moment the callback lands, and the orders list
+refreshes every 20 seconds so payments and packing by colleagues show up without
+a manual reload.
+
+### Refreshing no longer creates duplicate orders
+
+Each checkout attempt carries a stable key (kept across a refresh). If the same
+checkout is submitted again — a page reload, a back-then-forward, a
+double-tapped Pay button — the backend returns the **same** order instead of
+creating a new one. Your order count, revenue, and packing queue stop being
+inflated by refreshes.
 
 ---
 
 ## Worth checking
 
-- [ ] Sidebar reads v0.2.4.
-- [ ] Payments shows a list of two methods.
-- [ ] Tapping Kopo Kopo opens its setup page; the back link returns to the list.
-- [ ] Kopo Kopo's "Make active" is disabled until its three required fields are
-      saved.
+- [ ] Callback URL reads `api.enzipackaging.com` in **both** the admin and the
+      Kopo Kopo dashboard.
+- [ ] Make a live STK request and pay — the customer screen should flip to the
+      receipt, and the admin order should show **paid** within a few seconds,
+      no refresh.
+- [ ] Cancel a prompt on your phone — the customer screen should say
+      "Payment cancelled", not hang.
+- [ ] On the STK screen, refresh the page mid-payment — confirm no second order
+      appears in the admin.

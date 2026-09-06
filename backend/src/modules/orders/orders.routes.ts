@@ -53,6 +53,7 @@ ordersRouter.post(
         deliveryMethodId: z.string(),
         deliveryZoneId: z.string().optional(),
         deliveryDetails: z.any().optional(),
+        idempotencyKey: z.string().min(8).max(100).optional(),
       })
       .parse(req.body);
     const result = await placeOrder(body);

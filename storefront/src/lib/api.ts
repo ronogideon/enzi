@@ -264,8 +264,23 @@ export const api = {
       "/payments/stk",
       { orderId, phone }
     ),
-  paymentStatus: (checkoutRequestId: string) =>
-    fetch(`${apiBase()}/payments/status/${checkoutRequestId}`).then((r) => r.json()),
+  paymentStatus: (
+    reference: string
+  ): Promise<{
+    status: "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+    outcome:
+      | "pending"
+      | "success"
+      | "cancelled"
+      | "timeout"
+      | "wrong_pin"
+      | "insufficient"
+      | "failed";
+    isPaid: boolean;
+    orderNumber: string;
+    receipt: string | null;
+    message: string | null;
+  }> => fetch(`${apiBase()}/payments/status/${reference}`).then((r) => r.json()),
   submitReview: (body: { authorName: string; rating: number; body: string }) =>
     post<Review>("/reviews", body),
 };
