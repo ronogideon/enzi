@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAccount } from "@/lib/account";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
+import { Icon } from "@/components/Icons";
 import type { Order } from "@/lib/types";
 
 type MyOrder = Order & {
@@ -168,14 +169,33 @@ function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void 
     setPaying(true);
     setError(null);
     try {
-      await api.retryOrderPayment(order.orderNumber);
-      // A fresh prompt is on its way to the phone. Start the 40s cooldown
-      // before another attempt is allowed — a second STK while the first is
-      // still live just confuses the customer and can double-charge.
+      const { checkoutRequestId } = await api.retryOrderPayment(order.orderNumber);
       setPrompted(true);
       startCooldown();
-      // Give the payment a moment, then refresh so a fast confirmation shows.
-      setTimeout(onChanged, 6000);
+
+      // Poll the STATUS endpoint — not just the order list. This is what the
+      // account page was missing: the status endpoint asks the gateway
+      // directly, so the payment confirms even when the webhook doesn't arrive.
+      // Same mechanism the checkout screen uses.
+      let elapsed = 0;
+      const timer = setInterval(async () => {
+        elapsed += 2;
+        try {
+          const res = await api.paymentStatus(checkoutRequestId);
+          if (res.isPaid || res.status === "PAID" || res.status === "FAILED") {
+            clearInterval(timer);
+            onChanged();
+            return;
+          }
+        } catch {
+          /* transient */
+        }
+        // Stop after the STK window; the order stays on the page either way.
+        if (elapsed >= 30) {
+          clearInterval(timer);
+          onChanged();
+        }
+      }, 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start the payment");
     } finally {
@@ -183,43 +203,117 @@ function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void 
     }
   }
 
+  // The fulfilment journey, mapped to four visible milestones. A cancelled or
+  // refunded order shows its own state instead of the track.
+  const STEPS = [
+    { key: "ordered", label: "Ordered", reached: true, at: order.createdAt },
+    {
+      key: "confirmed",
+      label: order.isPaid ? "Paid" : "Confirmed",
+      reached: order.isPaid || ["CONFIRMED", "PROCESSING", "PACKED", "DISPATCHED", "DELIVERED"].includes(order.status),
+      at: order.paidAt,
+    },
+    {
+      key: "packed",
+      label: "Packed",
+      reached: ["PACKED", "DISPATCHED", "DELIVERED"].includes(order.status),
+      at: order.packedAt,
+    },
+    {
+      key: "shipped",
+      label: order.deliveryMethod?.type === "STORE_PICKUP" ? "Ready" : "Shipped",
+      reached: ["DISPATCHED", "DELIVERED"].includes(order.status),
+      at: order.dispatchedAt,
+    },
+    {
+      key: "delivered",
+      label: "Delivered",
+      reached: order.status === "DELIVERED",
+      at: order.deliveredAt,
+    },
+  ];
+  const cancelled = order.status === "CANCELLED" || order.status === "REFUNDED";
+  const lastReached = STEPS.map((s) => s.reached).lastIndexOf(true);
+
   return (
-    <div className="card p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <Link href={`/order/${order.orderNumber}`} className="min-w-0">
-          <p className="font-medium text-white">{order.orderNumber}</p>
-          <p className="text-xs text-muted">
-            {new Date(order.createdAt).toLocaleDateString()} ·{" "}
-            {order.items?.length ?? 0} item{order.items?.length === 1 ? "" : "s"}
+    <div className="card overflow-hidden">
+      <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between">
+        {/* Left: order identity + the journey */}
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-faint">Order #{order.orderNumber}</p>
+          <p className="mt-0.5 font-medium text-white">
+            {order.items?.length
+              ? order.items.map((i) => `${i.name}`).slice(0, 2).join(", ")
+              : "Order"}
+            {(order.items?.length ?? 0) > 2 && ` +${order.items!.length - 2} more`}
           </p>
-        </Link>
-        <div className="text-right">
-          <p className="font-medium text-white">{formatKes(order.total)}</p>
-          <p className={`text-xs ${statusTone(order.status, order.isPaid)}`}>
-            {order.isPaid ? "Paid" : STATUS_LABEL[order.status] ?? order.status}
+          <p className="mt-0.5 text-xs text-muted">
+            {new Date(order.createdAt).toLocaleDateString("en-KE")} · {formatKes(order.total)}
           </p>
-        </div>
-      </div>
 
-      {/* Payment status + retry, for orders that still need paying. */}
-      {needsPayment && (
-        <div className="mt-4 rounded-xl border border-gold/25 bg-gold/[0.04] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm text-gold">
-                {prompted && cooldown > 0
-                  ? "Prompt sent — enter your M-Pesa PIN on your phone. You can retry once the timer ends."
-                  : order.lastPaymentStatus === "FAILED"
-                  ? order.lastPaymentMessage ?? "The last payment didn't go through."
-                  : "This order is waiting for payment."}
-              </p>
-              {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
+          {cancelled ? (
+            <p className="mt-5 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-sm text-red-300">
+              {STATUS_LABEL[order.status]}
+            </p>
+          ) : (
+            <div className="mt-6 max-w-md">
+              {/* The progress track */}
+              <div className="relative flex items-center justify-between">
+                {/* base line */}
+                <div className="absolute left-0 right-0 top-[9px] h-0.5 bg-ink-line" />
+                {/* filled line up to the last reached step */}
+                <div
+                  className="absolute left-0 top-[9px] h-0.5 bg-whatsapp transition-all duration-500"
+                  style={{
+                    width:
+                      lastReached <= 0
+                        ? "0%"
+                        : `${(lastReached / (STEPS.length - 1)) * 100}%`,
+                  }}
+                />
+                {STEPS.map((step) => (
+                  <div key={step.key} className="relative z-10 flex flex-col items-center">
+                    <span
+                      className={`grid h-[18px] w-[18px] place-items-center rounded-full border-2 transition-colors ${
+                        step.reached
+                          ? "border-whatsapp bg-whatsapp text-ink"
+                          : "border-ink-line bg-ink text-transparent"
+                      }`}
+                    >
+                      <Icon.Check className="h-3 w-3" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {/* labels + dates under each node */}
+              <div className="mt-2 flex items-start justify-between">
+                {STEPS.map((step) => (
+                  <div key={step.key} className="w-1/5 text-center first:text-left last:text-right">
+                    <p className={`text-[11px] ${step.reached ? "text-cloud" : "text-faint"}`}>
+                      {step.label}
+                    </p>
+                    {step.at && (
+                      <p className="text-[10px] text-faint">
+                        {new Date(step.at).toLocaleDateString("en-KE", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
+        </div>
 
+        {/* Right: actions — retry (if unpaid) and download receipt */}
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:w-48">
+          {needsPayment && (
             <button
               onClick={retry}
               disabled={paying || cooldown > 0}
-              className="btn-primary shrink-0 px-6 text-sm"
+              className="btn-primary text-sm"
             >
               {paying
                 ? "Sending…"
@@ -227,7 +321,38 @@ function OrderRow({ order, onChanged }: { order: MyOrder; onChanged: () => void 
                 ? `Retry Payment in ${cooldown}s`
                 : "Retry Payment"}
             </button>
-          </div>
+          )}
+          {order.isPaid && (
+            <a
+              href={api.receiptUrl(order.orderNumber)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost inline-flex items-center justify-center gap-2 text-sm"
+            >
+              <Icon.Download className="h-4 w-4" />
+              Download receipt
+            </a>
+          )}
+          <Link
+            href={`/order/${order.orderNumber}`}
+            className="text-center text-xs text-muted underline-offset-4 hover:text-cloud hover:underline"
+          >
+            See order details
+          </Link>
+        </div>
+      </div>
+
+      {/* Payment status note for unpaid orders */}
+      {needsPayment && (
+        <div className="border-t border-ink-line bg-gold/[0.04] px-5 py-3">
+          <p className="text-sm text-gold">
+            {prompted && cooldown > 0
+              ? "Prompt sent — enter your M-Pesa PIN on your phone. You can retry once the timer ends."
+              : order.lastPaymentStatus === "FAILED"
+              ? order.lastPaymentMessage ?? "The last payment didn't go through."
+              : "This order is waiting for payment."}
+          </p>
+          {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
         </div>
       )}
     </div>

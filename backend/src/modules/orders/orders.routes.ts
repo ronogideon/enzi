@@ -60,6 +60,101 @@ ordersRouter.post(
   })
 );
 
+// ---- public: printable receipt ----
+ordersRouter.get(
+  "/number/:orderNumber/receipt",
+  wrap(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { orderNumber: req.params.orderNumber },
+      include: {
+        items: true,
+        deliveryMethod: true,
+        deliveryZone: true,
+        customer: { select: { name: true, phone: true, email: true } },
+        payments: { where: { status: "PAID" }, orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+    if (!order) return res.status(404).send("Order not found");
+
+    const kes = (c: number) =>
+      `Ksh ${(c / 100).toLocaleString("en-KE", { maximumFractionDigits: 0 })}`;
+    const esc = (v: unknown) =>
+      String(v ?? "").replace(/[&<>"]/g, (m) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m] as string)
+      );
+    const receipt = order.payments[0]?.receiptRef ?? order.payments[0]?.mpesaReceipt ?? "";
+
+    // Self-contained HTML with a print button. "Download" = print to PDF, which
+    // every browser and phone does natively — no PDF library on the server.
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipt ${esc(order.orderNumber)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 640px; margin: 0 auto; padding: 32px 24px; color: #111; background: #fff; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
+  .muted { color: #666; }
+  .row { display: flex; justify-content: space-between; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+  th, td { text-align: left; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+  td.r, th.r { text-align: right; }
+  .tot { font-weight: 700; font-size: 16px; }
+  .paid { display: inline-block; margin-top: 4px; padding: 3px 10px; border-radius: 999px;
+    background: #e7f6ec; color: #167c3b; font-size: 12px; font-weight: 600; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 24px;
+    padding: 10px 18px; border-radius: 999px; background: #111; color: #fff;
+    border: 0; font-size: 14px; font-weight: 600; cursor: pointer; }
+  @media print { .btn { display: none; } body { padding: 0; } }
+</style></head><body>
+  <button class="btn" onclick="window.print()">Download / Print receipt</button>
+  <div class="row">
+    <div>
+      <h1>ENZI PACKAGING</h1>
+      <p class="muted" style="margin:4px 0 0">Receipt</p>
+    </div>
+    <div style="text-align:right">
+      <p style="margin:0"><strong>${esc(order.orderNumber)}</strong></p>
+      <p class="muted" style="margin:4px 0 0">${new Date(order.createdAt).toLocaleDateString("en-KE")}</p>
+      ${order.isPaid ? '<span class="paid">PAID</span>' : ""}
+    </div>
+  </div>
+
+  <p class="muted" style="margin:20px 0 0">Billed to</p>
+  <p style="margin:2px 0">${esc(order.customer?.name ?? "-")}<br>
+    ${esc(order.customer?.phone ? "+" + order.customer.phone : "")}${
+      order.customer?.email ? "<br>" + esc(order.customer.email) : ""
+    }</p>
+
+  <table>
+    <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead>
+    <tbody>
+      ${order.items
+        .map(
+          (it) =>
+            `<tr><td>${esc(it.name)}</td><td class="r">${it.quantity}</td><td class="r">${kes(
+              it.unitPrice
+            )}</td><td class="r">${kes(it.lineTotal)}</td></tr>`
+        )
+        .join("")}
+    </tbody>
+  </table>
+
+  <div class="row"><span class="muted">Subtotal</span><span>${kes(order.subtotal)}</span></div>
+  <div class="row" style="margin-top:6px"><span class="muted">Delivery${
+    order.deliveryZone?.name ? " — " + esc(order.deliveryZone.name) : ""
+  }</span><span>${order.deliveryFee === 0 ? "Free" : kes(order.deliveryFee)}</span></div>
+  <div class="row tot" style="margin-top:12px;border-top:2px solid #111;padding-top:12px">
+    <span>Total</span><span>${kes(order.total)}</span></div>
+
+  ${receipt ? `<p class="muted" style="margin-top:20px">M-PESA / Payment ref: ${esc(receipt)}</p>` : ""}
+  <p class="muted" style="margin-top:28px;font-size:12px">Thank you for shopping with Enzi Packaging.</p>
+</body></html>`);
+  })
+);
+
 // ---- public: look up an order (receipt/invoice) ----
 ordersRouter.get(
   "/number/:orderNumber",

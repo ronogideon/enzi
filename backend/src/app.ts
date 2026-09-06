@@ -75,7 +75,7 @@ export function createApp() {
     res.json({
       ok: true,
       service: "enzi-backend",
-      version: "0.3.0",
+      version: "0.3.1",
       env: env.nodeEnv,
       database,
       setupRequired,

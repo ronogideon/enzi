@@ -164,6 +164,9 @@ export const api = {
     return apiBase();
   },
 
+  receiptUrl: (orderNumber: string) =>
+    `${apiBase()}/orders/number/${orderNumber}/receipt`,
+
   /** Is the API reachable at the configured address? Used by the sign-up page. */
   async health(): Promise<{ ok: boolean; url: string; error?: string; selfPointing?: boolean }> {
     const url = `${apiBase()}/health`;
