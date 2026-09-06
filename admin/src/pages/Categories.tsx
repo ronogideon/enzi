@@ -214,7 +214,7 @@ function CategoryForm({
             value={name}
             autoFocus
             onChange={(e) => setName(e.target.value)}
-            placeholder="Mailers &amp; Polybags"
+            placeholder="Mailers & Polybags"
             onKeyDown={(e) => {
               if (e.key === "Enter" && name.trim().length > 1) submit();
             }}

@@ -19,12 +19,12 @@ const ORDER: {
   icon: keyof typeof Icon;
   href: (v: string) => string;
 }[] = [
-  { key: "instagram", label: "Instagram", icon: "Instagram", href: (v) => v },
-  { key: "facebook", label: "Facebook", icon: "Facebook", href: (v) => v },
-  { key: "tiktok", label: "TikTok", icon: "TikTok", href: (v) => v },
-  { key: "x", label: "X", icon: "X", href: (v) => v },
-  { key: "linkedin", label: "LinkedIn", icon: "LinkedIn", href: (v) => v },
-  { key: "youtube", label: "YouTube", icon: "YouTube", href: (v) => v },
+  { key: "instagram", label: "Instagram", icon: "Instagram", href: absoluteUrl },
+  { key: "facebook", label: "Facebook", icon: "Facebook", href: absoluteUrl },
+  { key: "tiktok", label: "TikTok", icon: "TikTok", href: absoluteUrl },
+  { key: "x", label: "X", icon: "X", href: absoluteUrl },
+  { key: "linkedin", label: "LinkedIn", icon: "LinkedIn", href: absoluteUrl },
+  { key: "youtube", label: "YouTube", icon: "YouTube", href: absoluteUrl },
   {
     key: "whatsapp",
     label: "WhatsApp",
@@ -33,6 +33,18 @@ const ORDER: {
     href: (v) => (/^https?:\/\//i.test(v) ? v : `https://wa.me/${v.replace(/[^0-9]/g, "")}`),
   },
 ];
+
+/**
+ * A value without a scheme ("instagram.com/enzi") is not an absolute URL, so
+ * the browser resolves it against the current page and you land on
+ * enzipackaging.com/instagram.com/enzi — a 404. Adding the scheme here means
+ * the link works whether it's saved with https:// or without.
+ */
+function absoluteUrl(value: string): string {
+  const v = value.trim();
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : `https://${v.replace(/^\/+/, "")}`;
+}
 
 function activeLinks(socials: Socials) {
   return ORDER.filter((s) => (socials[s.key] ?? "").trim().length > 0).map((s) => ({

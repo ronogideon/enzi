@@ -1,96 +1,56 @@
-# Deploy checklist — Enzi v0.4.0
+# Deploy checklist — Enzi v0.4.2
 
-No schema change. Redeploy all three.
+No schema change. Redeploy the **storefront** (backend and admin are unchanged
+apart from the version stamp).
 
 ---
 
-## 1. Delivery information page
+## Footer socials are now real links
 
-New page at **/delivery**, linked from the FAQs page (a prominent card at the
-top) and from the main navigation.
+They were placeholder letters in circles — "I", "T", "W" — that looked like
+buttons but weren't links at all. The footer now uses the same
+settings-driven brand icons as the side rail: Instagram, Facebook, TikTok, X,
+LinkedIn, YouTube and WhatsApp, each clickable, each opening in a new tab.
 
-It's built from your **live delivery methods and zones** — the same data
-checkout uses — so the charges shown can never drift from what customers are
-actually billed. That's the usual failure of a hand-written delivery page.
+Same rule as the rail: **a blank field in Admin → Settings → Social links hides
+that icon**, so you only ever show profiles you actually run.
 
-Nothing to configure: whatever you set up in **Admin → Delivery** appears here,
-grouped by method with each area and its price, including any "free over X"
-thresholds.
+## Sitemap is linked in the footer
 
-## 2. Social links (Admin → Settings → Social links)
+Two places:
 
-Add your profile URLs for Instagram, Facebook, TikTok, X, LinkedIn, YouTube, and
-your WhatsApp number. Each shows as its **brand icon** on the shop — replacing
-the "IG / TT / WA" text placeholders.
+- **Company column** → "Sitemap"
+- **Bottom bar**, alongside Privacy Policy and Terms
 
-**A blank field hides that icon entirely**, so you'll never link to a profile you
-don't run. Add only what you actually use.
+Both point at `/sitemap.xml`. Search engines find it through `robots.txt`
+regardless, but a visible link is what people and some crawlers look for.
 
-## 3. SEO & Analytics (Admin → Settings → SEO & Analytics)
+## Also in the footer
 
-| Field | What to put |
-|---|---|
-| Site address | `https://enzipackaging.com` |
-| Default meta description | Your 150–160 character shop summary |
-| Google Analytics ID | `G-XXXXXXXXXX` from GA4 → Admin → Data streams |
-| Meta Pixel ID | Optional, for Facebook/Instagram ads |
+- **Delivery & charges** now appears under Shop — it was missing, which meant
+  the new delivery page was only reachable from the FAQs and the top nav.
+- Your **phone, email and address** are pulled from Settings and shown, with
+  the phone and email clickable (tap to call, tap to email on mobile).
+- The shop name in the footer comes from Settings rather than being hardcoded.
 
-**Analytics only loads when an ID is set** — a blank field ships no tracking
-script at all, so you're not slowing visitors down for data you're not
-collecting.
+## One thing I fixed anyway
 
-### What's now live for search
+You said not to worry about the social URL 404s, and entering full URLs does
+solve it. But it was a one-line change, so links now work **whether or not you
+include `https://`** — a value like `instagram.com/enzipackaging` is upgraded
+automatically instead of resolving to
+`enzipackaging.com/instagram.com/enzipackaging`.
 
-- **`/sitemap.xml`** — generated from live data, so every product, category and
-  blog post is discoverable automatically. Nothing to maintain by hand.
-- **`/robots.txt`** — points at the sitemap and blocks cart, checkout, account
-  and order pages, which can never rank and would waste crawl budget.
-- **`/llms.txt`** — tells AI assistants what your shop is, your categories, and
-  your FAQs in plain text. When someone asks an assistant where to buy packaging
-  in Nairobi, this is what gets you quoted accurately.
-- **Meta descriptions on every page**, written for search results rather than
-  restating the title.
-
-Once deployed, submit `https://enzipackaging.com/sitemap.xml` in **Google Search
-Console** — that's the step that actually gets you indexed quickly.
-
-## 4. Alt text on images
-
-Each product photo now has its **own alt text box** underneath it in the admin
-uploader. Describe what's in the photo ("White polymailer bags stacked on a
-shelf") — Google indexes this for image search, and it's what visually impaired
-customers hear.
-
-Existing photos fall back to the product name, so nothing is unlabelled; but
-filling these in is the single highest-value SEO task on your list.
-
-## 5. Smaller images, progressive loading
-
-- Photos now compress to **WebP** where supported — typically 25–35% smaller
-  than JPEG at the same visual quality — and step down in quality until they're
-  under ~300 KB. Max edge reduced to 1400px.
-- Quality floor is 0.55, so they never go muddy; packaging photos have flat
-  colours that show artefacts early, and this stops well short of that.
-- Images **lazy-load** as you scroll, so a long product grid only fetches what's
-  near the viewport.
-
-This matters twice over: your photos live in Postgres, and page speed is a
-ranking factor.
-
-## 6. Editable quantities
-
-The quantity control on the **cart** and **product page** is now a real input —
-type `250` instead of tapping + two hundred and fifty times. The buttons still
-work for small adjustments, and the price updates as you type.
+Worth having because the failure is silent: whoever edits these next won't hit
+the same trap, and nothing tells you it's broken except a customer finding a
+404.
 
 ---
 
 ## Worth checking
 
-- [ ] **/delivery** shows your real methods and zone prices.
-- [ ] FAQs page has the delivery card at the top, and it links through.
-- [ ] Add one social link → its brand icon appears on the shop; clear it → gone.
-- [ ] Visit `/sitemap.xml`, `/robots.txt` and `/llms.txt` — all three should
-      return content.
-- [ ] Upload a product photo and add alt text; confirm it saves.
-- [ ] On the cart, type a quantity directly into the box.
+- [ ] Footer social icons appear and each opens the right profile in a new tab.
+- [ ] Clear one social link in Settings → its icon disappears from both the
+      footer and the side rail.
+- [ ] Footer "Sitemap" link opens `/sitemap.xml`.
+- [ ] Footer shows your real phone/email/address from Settings.

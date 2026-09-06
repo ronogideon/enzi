@@ -231,7 +231,7 @@ export default function Settings() {
         />
       ) : tab === "socials" ? (
         <SettingsForm
-          title="Social &amp; contact links"
+          title="Social & contact links"
           description="These appear as icons on your shop. Leave a field blank and that icon simply won't show."
           fields={SOCIALS}
           settings={settings.data!}
@@ -239,7 +239,7 @@ export default function Settings() {
         />
       ) : tab === "seo" ? (
         <SettingsForm
-          title="SEO &amp; Analytics"
+          title="SEO & Analytics"
           description="How your shop appears in search results, and where visitor analytics are sent."
           fields={SEO}
           settings={settings.data!}

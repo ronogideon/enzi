@@ -68,7 +68,7 @@ export default async function RootLayout({
             <ToastProvider>
               <Header categories={categories} />
               <main className="min-h-[60vh]">{children}</main>
-              <Footer />
+              <Footer site={site} />
               <SocialRail socials={site.socials} />
               <ChatButton whatsapp={site.socials.whatsapp} />
             </ToastProvider>
