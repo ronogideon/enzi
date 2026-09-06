@@ -4,6 +4,12 @@ import { HeroCarousel, type HeroSlide } from "@/components/HeroCarousel";
 import { ProductCard } from "@/components/ProductCard";
 import { SectionHeader, StarRating } from "@/components/ui";
 
+export const metadata = {
+  title: "Enzi Packaging — packaging supplies in Nairobi",
+  description:
+    "Mailers, boxes, tape and packaging supplies in Nairobi. Retail and wholesale prices, M-PESA checkout, and delivery across Kenya.",
+};
+
 export default async function HomePage() {
   const [featured, reviews, faqs] = await Promise.all([
     api.featured(),

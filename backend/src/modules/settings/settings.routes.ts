@@ -16,10 +16,26 @@ import { talkSasaBalance } from "../sms/talksasa.service";
 
 export const settingsRouter = Router();
 
+
 const wrap =
   (fn: (req: any, res: any) => Promise<any>) =>
   (req: any, res: any, next: any) =>
     fn(req, res).catch(next);
+
+/**
+ * Public site config — socials, analytics IDs, contact details, SEO defaults.
+ * No auth: every value here is rendered publicly on the storefront anyway, and
+ * the storefront needs it server-side to build metadata and the sitemap.
+ * Contains no credentials.
+ */
+settingsRouter.get(
+  "/public",
+  wrap(async (_req, res) => {
+    const { publicSiteConfig } = await import("./settings.service");
+    res.set("Cache-Control", "public, max-age=60");
+    res.json(await publicSiteConfig());
+  })
+);
 
 /**
  * Read every editable setting. Secrets come back masked, plus a `source` so the

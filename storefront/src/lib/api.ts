@@ -4,6 +4,15 @@ import type {
 } from "./types";
 import { serverEnv, normalizeApiUrl, type RuntimeEnv } from "./runtime-env";
 
+export interface SiteConfig {
+  store: { name: string; phone: string; email: string; address: string };
+  socials: Partial<
+    Record<"instagram" | "facebook" | "tiktok" | "x" | "linkedin" | "youtube" | "whatsapp", string>
+  >;
+  analytics: { gaId: string; metaPixelId: string };
+  seo: { siteUrl: string; defaultDescription: string };
+}
+
 declare global {
   interface Window { __ENV__?: Partial<RuntimeEnv>; }
 }
@@ -163,6 +172,19 @@ export const api = {
   get base() {
     return apiBase();
   },
+
+  /**
+   * Public site config — socials, analytics IDs, SEO defaults. Fetched on the
+   * server so it can feed metadata and the sitemap; falls back to sane empties
+   * if the API is unreachable, so a backend blip never blanks the site.
+   */
+  siteConfig: () =>
+    get<SiteConfig>("/settings/public", {
+      store: { name: "Enzi Packaging", phone: "", email: "", address: "" },
+      socials: {},
+      analytics: { gaId: "", metaPixelId: "" },
+      seo: { siteUrl: "https://enzipackaging.com", defaultDescription: "" },
+    }),
 
   receiptUrl: (orderNumber: string) =>
     `${apiBase()}/orders/number/${orderNumber}/receipt`,

@@ -9,10 +9,12 @@ import type { ProductImage } from "@/lib/types";
  * for customers on mobile data, and means the API never needs an image
  * processing library.
  */
-const MAX_EDGE = 1600;
-const QUALITY = 0.82;
+const MAX_EDGE = 1400;
+const QUALITY = 0.8;
+/** Anything above this after the first pass gets re-encoded harder. */
+const TARGET_BYTES = 300 * 1024;
 
-async function downscale(file: File): Promise<{ data: string; width: number; height: number }> {
+export async function compressImage(file: File): Promise<{ data: string; width: number; height: number }> {
   const bitmapUrl = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -33,10 +35,29 @@ async function downscale(file: File): Promise<{ data: string; width: number; hei
     if (!ctx) throw new Error("Your browser blocked image processing");
     ctx.drawImage(img, 0, 0, width, height);
 
-    // PNGs with transparency stay PNG; everything else becomes JPEG, which is
-    // dramatically smaller for photographs.
-    const keepPng = file.type === "image/png";
-    const data = canvas.toDataURL(keepPng ? "image/png" : "image/jpeg", QUALITY);
+    // WebP where the browser supports it — typically 25-35% smaller than JPEG
+    // at the same visual quality, which matters because these bytes live in
+    // Postgres. Falls back to JPEG automatically (toDataURL returns a PNG data
+    // URL if the requested type isn't supported, so we detect and retry).
+    const preferred = canvas.toDataURL("image/webp", QUALITY);
+    let data = preferred.startsWith("data:image/webp")
+      ? preferred
+      : canvas.toDataURL("image/jpeg", QUALITY);
+
+    /**
+     * Second pass. A busy photograph can still land well over the target at
+     * q0.8, so step the quality down until it fits. Stopping at 0.55 keeps it
+     * visibly clean — below that, packaging photos start showing artefacts on
+     * flat colour, which is exactly where this shop's products live.
+     */
+    const bytesOf = (url: string) => Math.ceil((url.length - url.indexOf(",") - 1) * 0.75);
+    const type = data.startsWith("data:image/webp") ? "image/webp" : "image/jpeg";
+    let q = QUALITY;
+    while (bytesOf(data) > TARGET_BYTES && q > 0.55) {
+      q -= 0.08;
+      data = canvas.toDataURL(type, q);
+    }
+
     return { data, width, height };
   } finally {
     URL.revokeObjectURL(bitmapUrl);
@@ -79,7 +100,7 @@ export function ImageUploader({
           setError(`${file.name} isn't an image — skipped.`);
           continue;
         }
-        const { data, width, height } = await downscale(file);
+        const { data, width, height } = await compressImage(file);
         const uploaded = await api.uploadImage({
           filename: file.name,
           data,
@@ -136,12 +157,10 @@ export function ImageUploader({
       </div>
 
       {images.length > 0 && (
-        <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {images.map((img, i) => (
-            <div
-              key={`${img.url}-${i}`}
-              className="group relative aspect-square overflow-hidden rounded-xl border border-ink-line bg-ink-800"
-            >
+            <div key={`${img.url}-${i}`}>
+            <div className="group relative aspect-square overflow-hidden rounded-xl border border-ink-line bg-ink-800">
               <img
                 src={mediaUrl(img.url)}
                 alt={img.alt ?? ""}
@@ -182,8 +201,28 @@ export function ImageUploader({
                 </button>
               </div>
             </div>
+              <input
+                value={img.alt ?? ""}
+                onChange={(e) => {
+                  const next = [...images];
+                  next[i] = { ...next[i], alt: e.target.value };
+                  onChange(next);
+                }}
+                placeholder="Describe this photo"
+                aria-label={`Alt text for photo ${i + 1}`}
+                className="mt-1.5 w-full rounded-lg border border-ink-line bg-ink-800 px-2 py-1.5 text-[11px] text-cloud placeholder:text-faint focus:border-white/30 focus:outline-none"
+              />
+            </div>
           ))}
         </div>
+      )}
+
+      {images.length > 0 && (
+        <p className="mt-2 text-xs text-faint">
+          Describe each photo in the box on it — e.g. "White polymailer bags stacked on a
+          shelf". Search engines index this, and it's what visually impaired customers
+          hear.
+        </p>
       )}
 
       <input

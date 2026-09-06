@@ -60,7 +60,7 @@ export function ProductGallery({
         <img
           key={current.url}
           src={imageUrl(current.url)}
-          alt={current.alt ?? name}
+          alt={current.alt ?? `${name} — product photo`}
           onLoad={() => setLoaded(true)}
           data-loaded={loaded}
           className="img-in max-h-full max-w-full rounded-lg object-contain"
@@ -85,8 +85,9 @@ export function ProductGallery({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imageUrl(img.url)}
-                alt=""
+                alt={img.alt ?? `${name} — view ${i + 1}`}
                 loading="lazy"
+                decoding="async"
                 className="h-full w-full rounded object-contain"
               />
             </button>

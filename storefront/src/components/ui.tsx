@@ -13,10 +13,13 @@ export function SmartImage({
   src,
   alt,
   className = "",
+  priority = false,
 }: {
   src?: string | null;
   alt: string;
   className?: string;
+  /** Set on above-the-fold images so they aren't lazy-loaded. */
+  priority?: boolean;
 }) {
   if (!src) {
     return (
@@ -41,7 +44,9 @@ export function SmartImage({
   // Uploaded photos are stored as "/api/media/<id>" — a path relative to the
   // API, not to the storefront — so resolve it against the API host here. Doing
   // it in one place means every gallery, card and cart row gets it for free.
-  return <FadeInImage src={imageUrl(src)} alt={alt} className={className} />;
+  return (
+    <FadeInImage src={imageUrl(src)} alt={alt} className={className} priority={priority} />
+  );
 }
 
 /**
@@ -49,11 +54,12 @@ export function SmartImage({
  * opacity mid-scroll, which reads as jank on a slow connection.
  */
 function FadeInImage({
-  src, alt, className,
+  src, alt, className, priority,
 }: {
   src: string;
   alt: string;
   className: string;
+  priority?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -61,7 +67,12 @@ function FadeInImage({
     <img
       src={src}
       alt={alt}
-      loading="lazy"
+      // Everything lazy-loads by default, so a long product grid only fetches
+      // what's near the viewport as you scroll. `priority` opts a hero or
+      // above-the-fold image out — deferring those delays Largest Contentful
+      // Paint, which search ranking measures directly.
+      loading={priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : "auto"}
       decoding="async"
       data-loaded={loaded}
       onLoad={() => setLoaded(true)}

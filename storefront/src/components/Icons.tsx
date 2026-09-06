@@ -218,6 +218,40 @@ export const Icon = {
       <path d="M21 12H10" />
     </Svg>
   ),
+  Instagram: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
+  Facebook: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M14 8.5V7c0-.8.7-1.5 1.5-1.5H17V3h-2.2A3.8 3.8 0 0 0 11 6.8v1.7H9V11h2v10h3V11h2.2l.4-2.5H14z" />
+    </Svg>
+  ),
+  TikTok: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M15 4c.4 2.2 1.9 3.7 4 4v3a7.4 7.4 0 0 1-4-1.3v5.8a5.5 5.5 0 1 1-5.5-5.5c.3 0 .6 0 .9.1v3a2.6 2.6 0 1 0 1.8 2.4V4H15z" />
+    </Svg>
+  ),
+  X: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M4 4l7 9-7 7h2.2l5.8-5.8L17 20h3l-7.3-9.4L19.4 4h-2.2l-5.3 5.3L8 4H4z" />
+    </Svg>
+  ),
+  LinkedIn: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <path d="M7.5 10.5V17M7.5 7.6v.01M11.5 17v-3.6a2 2 0 0 1 4 0V17" />
+    </Svg>
+  ),
+  YouTube: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="2.5" y="6" width="19" height="12" rx="3.5" />
+      <path d="M10.5 9.8v4.4l4-2.2-4-2.2z" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
   Cart: (p: IconProps) => (
     <Svg {...p}>
       <path d="M3 4h2l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h7.8a1.5 1.5 0 0 0 1.5-1.2L20 8H6" />

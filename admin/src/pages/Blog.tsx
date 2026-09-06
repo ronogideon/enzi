@@ -5,6 +5,7 @@ import { renderMarkdown, excerptFrom } from "@/lib/markdown";
 import type { BlogPost } from "@/lib/types";
 import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
 import { Icon } from "@/components/Icons";
+import { compressImage } from "@/components/ImageUploader";
 
 /**
  * Blog admin.
@@ -162,27 +163,10 @@ export default function Blog() {
   );
 }
 
-/** Shrink photos in the browser before upload, same as the product uploader. */
+/** Blog images go through the same compression as product photos. */
 async function downscale(file: File): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error(`${file.name} isn't a readable image`));
-      el.src = url;
-    });
-    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(img.width * scale);
-    canvas.height = Math.round(img.height * scale);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Your browser blocked image processing");
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.82);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const { data } = await compressImage(file);
+  return data;
 }
 
 function PostEditor({

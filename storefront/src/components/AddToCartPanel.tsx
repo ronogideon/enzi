@@ -6,6 +6,7 @@ import type { Product } from "@/lib/types";
 import { useCart } from "@/lib/cart";
 import { useToast } from "@/components/Toast";
 import { formatKes } from "@/lib/money";
+import { QuantityInput } from "./QuantityInput";
 
 /**
  * Wholesale is automatic and quantity-driven — there is no tier to pick.
@@ -112,30 +113,7 @@ export function AddToCartPanel({ product }: { product: Product }) {
       )}
 
       <div className="mt-5 flex items-center gap-4">
-        <div className="flex items-center rounded-full border border-ink-line">
-          <button
-            onClick={() => changeQty(qty - 1)}
-            disabled={qty <= min}
-            className="grid h-11 w-11 place-items-center text-lg text-muted transition-colors hover:text-cloud active:scale-95 disabled:opacity-30"
-            aria-label="Decrease quantity"
-          >
-            −
-          </button>
-          <input
-            value={qty}
-            inputMode="numeric"
-            onChange={(e) => changeQty(parseInt(e.target.value, 10) || min)}
-            className="w-14 bg-transparent text-center text-cloud focus:outline-none"
-            aria-label="Quantity"
-          />
-          <button
-            onClick={() => changeQty(qty + 1)}
-            className="grid h-11 w-11 place-items-center text-lg text-muted transition-colors hover:text-cloud active:scale-95"
-            aria-label="Increase quantity"
-          >
-            +
-          </button>
-        </div>
+        <QuantityInput value={qty} min={min} onChange={changeQty} />
 
         <button
           onClick={handleAdd}

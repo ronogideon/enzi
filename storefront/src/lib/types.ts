@@ -13,6 +13,7 @@ export interface ProductImage {
   alt?: string | null;
 }
 export interface Product {
+  createdAt?: string;
   id: string;
   name: string;
   slug: string;
@@ -40,6 +41,7 @@ export interface DeliveryZone {
 }
 
 export interface DeliveryMethod {
+  active?: boolean;
   id: string;
   name: string;
   type: "STORE_PICKUP" | "DELIVERY" | "PARCEL" | "PICKUP_MTAANI";

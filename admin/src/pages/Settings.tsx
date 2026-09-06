@@ -5,7 +5,7 @@ import type { SettingsMap } from "@/lib/types";
 import { PageHeader, Spinner, EmptyState, Badge, useAsync } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 
-type TabKey = "business" | "payments" | "sms" | "account";
+type TabKey = "business" | "socials" | "payments" | "sms" | "seo" | "account";
 
 interface Field {
   key: string;
@@ -18,8 +18,10 @@ interface Field {
 
 const TABS: { key: TabKey; label: string; icon: keyof typeof Icon; adminOnly?: boolean }[] = [
   { key: "business", label: "Business", icon: "Products" },
+  { key: "socials", label: "Social links", icon: "Link", adminOnly: true },
   { key: "payments", label: "Payments", icon: "Money", adminOnly: true },
   { key: "sms", label: "SMS", icon: "Sms", adminOnly: true },
+  { key: "seo", label: "SEO & Analytics", icon: "Trend", adminOnly: true },
   { key: "account", label: "My account", icon: "Staff" },
 ];
 
@@ -106,6 +108,47 @@ const PAYMENTS: Field[] = [
   },
 ];
 
+/**
+ * Social links. A blank field hides that icon on the storefront entirely —
+ * better than linking to a page you don't actually maintain.
+ */
+const SOCIALS: Field[] = [
+  { key: "social.whatsapp", label: "WhatsApp number", placeholder: "254110050620", hint: "Digits only, with country code. Powers the chat button." },
+  { key: "social.instagram", label: "Instagram", placeholder: "https://instagram.com/enzipackaging" },
+  { key: "social.facebook", label: "Facebook", placeholder: "https://facebook.com/enzipackaging" },
+  { key: "social.tiktok", label: "TikTok", placeholder: "https://tiktok.com/@enzipackaging" },
+  { key: "social.x", label: "X (Twitter)", placeholder: "https://x.com/enzipackaging" },
+  { key: "social.linkedin", label: "LinkedIn", placeholder: "https://linkedin.com/company/…" },
+  { key: "social.youtube", label: "YouTube", placeholder: "https://youtube.com/@enzipackaging" },
+];
+
+const SEO: Field[] = [
+  {
+    key: "seo.siteUrl",
+    label: "Site address",
+    placeholder: "https://enzipackaging.com",
+    hint: "Used to build sitemap.xml and canonical links. No trailing slash.",
+  },
+  {
+    key: "seo.defaultDescription",
+    label: "Default meta description",
+    placeholder: "Quality packaging supplies in Nairobi…",
+    hint: "Shown in Google results for pages without their own description. Aim for 150–160 characters.",
+  },
+  {
+    key: "analytics.gaId",
+    label: "Google Analytics ID",
+    placeholder: "G-XXXXXXXXXX",
+    hint: "From Google Analytics → Admin → Data streams. Leave blank to load no tracking at all.",
+  },
+  {
+    key: "analytics.metaPixelId",
+    label: "Meta Pixel ID",
+    placeholder: "123456789012345",
+    hint: "Optional — for Facebook/Instagram ad tracking.",
+  },
+];
+
 const SMS: Field[] = [
   {
     key: "sms.enabled",
@@ -183,6 +226,22 @@ export default function Settings() {
           title="Business details"
           description="Used across the storefront — contact strip, footer and receipts."
           fields={BUSINESS}
+          settings={settings.data!}
+          onSaved={settings.reload}
+        />
+      ) : tab === "socials" ? (
+        <SettingsForm
+          title="Social &amp; contact links"
+          description="These appear as icons on your shop. Leave a field blank and that icon simply won't show."
+          fields={SOCIALS}
+          settings={settings.data!}
+          onSaved={settings.reload}
+        />
+      ) : tab === "seo" ? (
+        <SettingsForm
+          title="SEO &amp; Analytics"
+          description="How your shop appears in search results, and where visitor analytics are sent."
+          fields={SEO}
           settings={settings.data!}
           onSaved={settings.reload}
         />

@@ -13,6 +13,7 @@ const NAV = [
   { label: "Our Products", href: "/shop" },
   { label: "Reviews", href: "/reviews" },
   { label: "Blog", href: "/blog" },
+  { label: "Delivery", href: "/delivery" },
   { label: "FAQs", href: "/faqs" },
   { label: "Contact Us", href: "/contact" },
 ];
@@ -186,6 +187,9 @@ export function Header({ categories }: { categories: Category[] }) {
           </NavLink>
           <NavLink href="/blog" active={isActive("/blog")}>
             Blog
+          </NavLink>
+          <NavLink href="/delivery" active={isActive("/delivery")}>
+            Delivery
           </NavLink>
           <NavLink href="/faqs" active={isActive("/faqs")}>
             FAQs

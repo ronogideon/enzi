@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/Toast";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SocialRail, ChatButton } from "@/components/SocialRail";
+import { Analytics } from "@/components/Analytics";
 import { api } from "@/lib/api";
 import { serverEnv } from "@/lib/runtime-env";
 
@@ -40,7 +41,9 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const categories = await api.categories();
+  // Fetched in parallel — the layout blocks on both, so serialising them would
+  // add a round trip to every page load.
+  const [categories, site] = await Promise.all([api.categories(), api.siteConfig()]);
 
   // Resolved on the server at request time and handed to the browser, so the
   // API address is never compiled into the bundle. Changing the Railway
@@ -59,14 +62,15 @@ export default async function RootLayout({
         />
       </head>
       <body>
+        <Analytics gaId={site.analytics.gaId} metaPixelId={site.analytics.metaPixelId} />
         <AccountProvider>
           <CartProvider>
             <ToastProvider>
               <Header categories={categories} />
               <main className="min-h-[60vh]">{children}</main>
               <Footer />
-              <SocialRail />
-              <ChatButton />
+              <SocialRail socials={site.socials} />
+              <ChatButton whatsapp={site.socials.whatsapp} />
             </ToastProvider>
           </CartProvider>
         </AccountProvider>

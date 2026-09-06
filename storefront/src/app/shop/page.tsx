@@ -3,6 +3,12 @@ import { api } from "@/lib/api";
 import { ProductCard } from "@/components/ProductCard";
 import type { Product } from "@/lib/types";
 
+export const metadata = {
+  title: "Shop all products",
+  description:
+    "Browse every packaging product we stock — polymailers, boxes, tape, ribbon and more. Live prices and stock, with automatic wholesale rates on bulk orders.",
+};
+
 const PRICE_BANDS: Record<string, [number, number]> = {
   "under-1000": [0, 100000],
   "1000-5000": [100000, 500000],

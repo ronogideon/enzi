@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useCart } from "@/lib/cart";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
+import { QuantityInput } from "@/components/QuantityInput";
 import { SmartImage } from "@/components/ui";
 import type { PricedCart } from "@/lib/types";
 
@@ -109,25 +110,10 @@ export default function CartPage() {
                   <p className="mt-1 text-sm text-muted">{formatKes(unit)} each</p>
 
                   <div className="mt-auto flex items-center justify-between pt-3">
-                    <div className="flex items-center rounded-full border border-ink-line">
-                      <button
-                        onClick={() => setQty(item.productId, Math.max(1, item.quantity - 1))}
-                        className="grid h-9 w-9 place-items-center text-muted hover:text-cloud"
-                        aria-label="Decrease"
-                      >
-                        −
-                      </button>
-                      <span className="w-8 text-center text-sm text-cloud">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => setQty(item.productId, item.quantity + 1)}
-                        className="grid h-9 w-9 place-items-center text-muted hover:text-cloud"
-                        aria-label="Increase"
-                      >
-                        +
-                      </button>
-                    </div>
+                    <QuantityInput
+                      value={item.quantity}
+                      onChange={(q) => setQty(item.productId, q)}
+                    />
                     <span className="font-semibold text-white">
                       {formatKes(lineTotal)}
                     </span>

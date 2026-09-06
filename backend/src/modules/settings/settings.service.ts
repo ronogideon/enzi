@@ -45,6 +45,26 @@ export const SETTING_DEFAULTS: Record<string, () => string> = {
   "mpesa.callbackUrl": () => env.mpesa.callbackUrl,
   "mpesa.transactionType": () => "CustomerPayBillOnline",
 
+  // Social + external links. Blank means "don't show that icon at all", so the
+  // shop never renders a link to a page it doesn't have.
+  "social.instagram": () => "",
+  "social.facebook": () => "",
+  "social.tiktok": () => "",
+  "social.x": () => "",
+  "social.linkedin": () => "",
+  "social.youtube": () => "",
+  "social.whatsapp": () => process.env.WHATSAPP ?? "",
+
+  // Analytics. A Google Analytics 4 measurement ID (G-XXXXXXXXXX); blank
+  // disables the script entirely rather than loading an empty tag.
+  "analytics.gaId": () => process.env.GA_MEASUREMENT_ID ?? "",
+  "analytics.metaPixelId": () => process.env.META_PIXEL_ID ?? "",
+
+  // SEO
+  "seo.siteUrl": () => process.env.SITE_URL ?? "https://enzipackaging.com",
+  "seo.defaultDescription": () =>
+    "Quality packaging supplies in Nairobi — mailers, boxes, tape and more, at retail and wholesale prices.",
+
   // Which gateway takes online payments. "mpesa" talks to Daraja directly;
   // "kopokopo" routes through Kopo Kopo's till.
   "payments.provider": () => "mpesa",
@@ -213,6 +233,53 @@ export async function mpesaConfig() {
         ? "CustomerBuyGoodsOnline"
         : "CustomerPayBillOnline",
     enabled: await getBool("mpesa.enabled", true),
+  };
+}
+
+/** Public site config the storefront can read without auth. */
+export async function publicSiteConfig() {
+  const keys = [
+    "store.name",
+    "store.phone",
+    "store.email",
+    "store.address",
+    "social.instagram",
+    "social.facebook",
+    "social.tiktok",
+    "social.x",
+    "social.linkedin",
+    "social.youtube",
+    "social.whatsapp",
+    "analytics.gaId",
+    "analytics.metaPixelId",
+    "seo.siteUrl",
+    "seo.defaultDescription",
+  ];
+  const s = await getSettings(keys);
+  return {
+    store: {
+      name: s["store.name"],
+      phone: s["store.phone"],
+      email: s["store.email"],
+      address: s["store.address"],
+    },
+    socials: {
+      instagram: s["social.instagram"],
+      facebook: s["social.facebook"],
+      tiktok: s["social.tiktok"],
+      x: s["social.x"],
+      linkedin: s["social.linkedin"],
+      youtube: s["social.youtube"],
+      whatsapp: s["social.whatsapp"],
+    },
+    analytics: {
+      gaId: s["analytics.gaId"],
+      metaPixelId: s["analytics.metaPixelId"],
+    },
+    seo: {
+      siteUrl: s["seo.siteUrl"],
+      defaultDescription: s["seo.defaultDescription"],
+    },
   };
 }
 

@@ -2,7 +2,9 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { SmartImage } from "@/components/ui";
 
-export const metadata = { title: "News & Blogs" };
+export const metadata = {
+  description:
+    "Guides and articles on packaging your products well — choosing materials, cutting shipping costs, and presenting orders your customers remember.", title: "News & Blogs" };
 
 export default async function BlogPage() {
   const posts = await api.blog();

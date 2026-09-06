@@ -2,7 +2,9 @@ import { api } from "@/lib/api";
 import { StarRating } from "@/components/ui";
 import { ReviewForm } from "@/components/ReviewForm";
 
-export const metadata = { title: "Reviews" };
+export const metadata = {
+  description:
+    "What customers say about ordering packaging from Enzi Packaging — product quality, delivery and service, in their own words.", title: "Reviews" };
 
 export default async function ReviewsPage() {
   const reviews = await api.reviews();
