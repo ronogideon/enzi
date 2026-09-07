@@ -103,17 +103,33 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const total = cart.subtotal + deliveryFee;
 
   // Refuse to sell what isn't there, rather than going negative on stock.
+  // Availability is checked against the exact variant where one applies, so a
+  // colour that's sold out can't be bought just because another colour has
+  // stock. The message deliberately says "not available" rather than quoting a
+  // number — stock levels aren't public.
   const shortages: string[] = [];
   for (const line of cart.lines) {
-    const p = await prisma.product.findUnique({
-      where: { id: line.productId },
-      select: { name: true, stockQty: true },
-    });
-    if (p && p.stockQty < line.quantity)
-      shortages.push(`${p.name} (${p.stockQty} left, ${line.quantity} requested)`);
+    const label = line.variantLabel ? `${line.name} (${line.variantLabel})` : line.name;
+
+    if (line.variantId) {
+      const v = await prisma.productVariant.findUnique({
+        where: { id: line.variantId },
+        select: { stockQty: true, active: true },
+      });
+      if (!v || !v.active || v.stockQty < line.quantity) shortages.push(label);
+    } else {
+      const p = await prisma.product.findUnique({
+        where: { id: line.productId },
+        select: { stockQty: true },
+      });
+      if (!p || p.stockQty < line.quantity) shortages.push(label);
+    }
   }
   if (shortages.length)
-    throw new HttpError(409, `Not enough stock for: ${shortages.join("; ")}`);
+    throw new HttpError(
+      409,
+      `Not enough stock for: ${shortages.join("; ")}. Please adjust the quantities and try again.`
+    );
 
   const order = await prisma.$transaction(async (tx) => {
     const customer = await tx.customer.upsert({
@@ -147,7 +163,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         items: {
           create: cart.lines.map((l) => ({
             productId: l.productId,
+            variantId: l.variantId,
             name: l.name,
+            variantLabel: l.variantLabel,
             unitPrice: l.unitPrice,
             quantity: l.quantity,
             lineTotal: l.lineTotal,
@@ -164,12 +182,27 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     });
 
     for (const l of cart.lines) {
-      await tx.product.update({
-        where: { id: l.productId },
-        data: { stockQty: { decrement: l.quantity } },
-      });
+      if (l.variantId) {
+        await tx.productVariant.update({
+          where: { id: l.variantId },
+          data: { stockQty: { decrement: l.quantity } },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: l.productId },
+          data: { stockQty: { decrement: l.quantity } },
+        });
+      }
+      // The movement ledger stays product-level so stock reports still balance;
+      // the note carries which variant it was.
       await tx.stockMovement.create({
-        data: { productId: l.productId, delta: -l.quantity, reason: "SALE", refId: created.id },
+        data: {
+          productId: l.productId,
+          delta: -l.quantity,
+          reason: "SALE",
+          refId: created.id,
+          note: l.variantLabel ?? undefined,
+        },
       });
     }
 
@@ -297,17 +330,26 @@ export async function cancelOrder(orderId: string, staffId?: string, note?: stri
     if (!order) throw new HttpError(404, "Order not found");
 
     for (const item of order.items) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stockQty: { increment: item.quantity } },
-      });
+      if (item.variantId) {
+        await tx.productVariant.update({
+          where: { id: item.variantId },
+          data: { stockQty: { increment: item.quantity } },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQty: { increment: item.quantity } },
+        });
+      }
       await tx.stockMovement.create({
         data: {
           productId: item.productId,
           delta: item.quantity,
           reason: "RETURN",
           refId: order.id,
-          note: "order cancelled",
+          note: item.variantLabel
+            ? `order cancelled — ${item.variantLabel}`
+            : "order cancelled",
         },
       });
     }

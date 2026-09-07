@@ -22,6 +22,7 @@ const wrap =
 
 const lineSchema = z.object({
   productId: z.string(),
+  variantId: z.string().optional(),
   quantity: z.number().int().positive(),
 });
 

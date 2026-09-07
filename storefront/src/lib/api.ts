@@ -292,7 +292,7 @@ export const api = {
   // ---- checkout ----
   // No tier argument: the server derives retail vs wholesale per line from the
   // quantity, so the client can't ask for a price it hasn't earned.
-  priceCart: (lines: { productId: string; quantity: number }[]) =>
+  priceCart: (lines: { productId: string; variantId?: string; quantity: number }[]) =>
     post<PricedCart>("/orders/price", { lines }),
   placeOrder: (payload: unknown) =>
     post<{

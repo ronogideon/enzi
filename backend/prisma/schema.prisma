@@ -146,14 +146,28 @@ model Product {
   retailMinQty    Int @default(1)
   wholesaleMinQty Int @default(1)
 
+  /// Stock for a simple product. When hasVariants is true this is ignored and
+  /// availability comes from the variants instead.
   stockQty  Int     @default(0)
   featured  Boolean @default(false)
   active    Boolean @default(true)
+
+  /// True once the product carries colour/size variants. Kept explicit rather
+  /// than inferred from variants.length so a product can be set up as a
+  /// variant product before its first variant is added.
+  hasVariants Boolean @default(false)
+
+  /// Optional urgency badge on the shop listing — the shop writes the text
+  /// ("Few pieces remaining", "Selling fast"). Exact stock numbers are never
+  /// shown publicly; the storefront only ever says in stock or out of stock.
+  badgeText   String?
+  badgeActive Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   images     ProductImage[]
+  variants   ProductVariant[]
   promotions Promotion[]
   orderItems OrderItem[]
   stockMoves StockMovement[]
@@ -163,10 +177,58 @@ model Product {
   @@index([featured])
 }
 
+/// A specific buyable combination — "White / 8*10cm".
+///
+/// Colours and sizes are stored per variant rather than as two independent
+/// lists, because the size range genuinely differs by colour: White might come
+/// in three sizes where Chocolate comes in two. Deriving the size list from the
+/// variants that exist for the selected colour is what makes that work.
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// Either may be null — a product can vary by colour only, or size only.
+  colour    String?
+  size      String?
+
+  /// Swatch presentation: a hex value, or an uploaded image for patterned or
+  /// "customised" options that no single colour represents.
+  colourHex     String?
+  swatchMediaId String?
+
+  sku       String? @unique
+  /// Own URL for SEO, e.g. /product/poly-mailers/white-8x10. Lands on the
+  /// product page with this variant preselected.
+  slug      String? @unique
+
+  retailPrice    Int
+  wholesalePrice Int?
+
+  /// Stock is held per variant so a customer only ever sees what can actually
+  /// be sold, and one colour selling out doesn't hide the others.
+  stockQty  Int     @default(0)
+  active    Boolean @default(true)
+  position  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images     ProductImage[]
+  orderItems OrderItem[]
+
+  @@unique([productId, colour, size])
+  @@index([productId])
+}
+
 model ProductImage {
   id        String  @id @default(cuid())
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// When set, this photo belongs to one variant — selecting that colour on
+  /// the storefront swaps the gallery to its own images.
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
   // Either an external URL, or /api/media/<mediaId> for an uploaded file.
   url       String
   mediaId   String?
@@ -174,6 +236,7 @@ model ProductImage {
   position  Int     @default(0)
 
   @@index([productId])
+  @@index([variantId])
 }
 
 /// Uploaded binaries live in Postgres so the platform needs no object store —
@@ -370,9 +433,13 @@ model OrderItem {
   order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId  String
   product    Product     @relation(fields: [productId], references: [id])
+  variantId  String?
+  variant    ProductVariant? @relation(fields: [variantId], references: [id])
 
   // snapshots (price/name frozen at time of order)
   name       String
+  /// "White / 8*10cm" — frozen so a later rename doesn't rewrite history.
+  variantLabel String?
   unitPrice  Int // effective price after tier + promo, cents
   quantity   Int
   lineTotal  Int

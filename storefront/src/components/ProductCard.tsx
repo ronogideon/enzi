@@ -18,7 +18,11 @@ export function ProductCard({ product }: { product: Product }) {
   const effective = product.effectivePrice ?? base;
   const onSale = effective < base;
   const wholesaleMin = product.wholesalePrice != null ? product.wholesaleMinQty : null;
-  const out = product.stockQty <= 0;
+  // Availability now comes from the API as a boolean — exact stock is never
+  // sent to the browser. Falls back to stockQty for products from an older
+  // response shape.
+  const out = product.inStock === false || (product.inStock === undefined && product.stockQty <= 0);
+  const badge = product.badgeActive && product.badgeText ? product.badgeText : null;
 
   return (
     <div className="card lift group flex flex-col overflow-hidden hover:border-white/15">
@@ -33,10 +37,16 @@ export function ProductCard({ product }: { product: Product }) {
             Sale
           </span>
         )}
-        {out && (
+        {out ? (
           <span className="absolute right-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-muted backdrop-blur-sm">
             Out of stock
           </span>
+        ) : (
+          badge && (
+            <span className="absolute right-3 top-3 rounded-full bg-gold px-2.5 py-1 text-xs font-semibold text-ink">
+              {badge}
+            </span>
+          )
         )}
       </Link>
 
@@ -62,16 +72,25 @@ export function ProductCard({ product }: { product: Product }) {
         </div>
 
         <div className="mt-4 flex gap-2 pt-1">
-          <button
-            onClick={() => {
-              add(product);
-              toast("Added to cart", { duration: 2000 });
-            }}
-            disabled={out}
-            className="btn-primary flex-1 px-4 py-2.5 text-xs uppercase tracking-wider"
-          >
-            Add to cart
-          </button>
+          {product.hasVariants ? (
+            <Link
+              href={`/product/${product.slug}`}
+              className="btn-primary flex-1 px-4 py-2.5 text-center text-xs uppercase tracking-wider"
+            >
+              Choose options
+            </Link>
+          ) : (
+            <button
+              onClick={() => {
+                add(product);
+                toast("Added to cart", { duration: 2000 });
+              }}
+              disabled={out}
+              className="btn-primary flex-1 px-4 py-2.5 text-xs uppercase tracking-wider"
+            >
+              Add to cart
+            </button>
+          )}
           <Link
             href={`/product/${product.slug}`}
             className="btn-ghost px-4 py-2.5 text-xs uppercase tracking-wider"

@@ -8,6 +8,12 @@ import {
 } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { ImageUploader } from "@/components/ImageUploader";
+import {
+  VariantEditor,
+  toDraft,
+  draftsToPayload,
+  type DraftVariant,
+} from "@/components/VariantEditor";
 
 type Filter = "all" | "active" | "hidden" | "lowstock";
 
@@ -166,7 +172,14 @@ export default function Products() {
                 </div>
               </div>
 
-              <div className="mt-4 flex items-center justify-between gap-4 border-t border-ink-line pt-3">
+              <div className="mt-3 border-t border-ink-line pt-3">
+                <p className="mb-1.5 text-[10px] uppercase tracking-wider text-faint">
+                  Urgency badge
+                </p>
+                <BadgeControl product={p} onSaved={products.reload} />
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-4 border-t border-ink-line pt-3">
                 <label className="flex items-center gap-2 text-xs text-muted">
                   <Toggle checked={p.active} onChange={(v) => toggleField(p, "active", v)} label="In shop" />
                   In shop
@@ -191,7 +204,7 @@ export default function Products() {
         </div>
 
         <div className="card hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[880px]">
+          <table className="w-full min-w-[1040px]">
             <thead className="border-b border-ink-line">
               <tr>
                 <th className="th">Product</th>
@@ -199,6 +212,7 @@ export default function Products() {
                 <th className="th text-right">Retail</th>
                 <th className="th text-right">Wholesale</th>
                 <th className="th text-right">Stock</th>
+                <th className="th">Urgency badge</th>
                 <th className="th text-center">Featured</th>
                 <th className="th text-center">In shop</th>
                 <th className="th"></th>
@@ -233,6 +247,10 @@ export default function Products() {
                         <p className="text-xs text-faint">
                           {p.images?.length ?? 0} photo{p.images?.length === 1 ? "" : "s"}
                           {p.retailMinQty > 1 && ` · min ${p.retailMinQty}`}
+                          {(p.variants?.length ?? 0) > 0 &&
+                            ` · ${p.variants!.length} option${
+                              p.variants!.length === 1 ? "" : "s"
+                            }`}
                         </p>
                       </div>
                     </div>
@@ -243,9 +261,33 @@ export default function Products() {
                     {p.wholesalePrice ? formatKes(p.wholesalePrice) : "—"}
                   </td>
                   <td className="td text-right">
-                    <Badge tone={p.stockQty <= 0 ? "danger" : p.stockQty <= 10 ? "gold" : "muted"}>
-                      {p.stockQty}
-                    </Badge>
+                    {(p.variants?.length ?? 0) > 0 ? (
+                      (() => {
+                        // Total across options, so the list still answers "how
+                        // much do I have?" at a glance.
+                        const total = p.variants!.reduce((n, v) => n + (v.stockQty ?? 0), 0);
+                        const sold = p.variants!.filter((v) => (v.stockQty ?? 0) <= 0).length;
+                        return (
+                          <>
+                            <Badge tone={total <= 0 ? "danger" : total <= 10 ? "gold" : "muted"}>
+                              {total}
+                            </Badge>
+                            {sold > 0 && (
+                              <div className="mt-0.5 text-[10px] text-faint">
+                                {sold} option{sold === 1 ? "" : "s"} out
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <Badge tone={p.stockQty <= 0 ? "danger" : p.stockQty <= 10 ? "gold" : "muted"}>
+                        {p.stockQty}
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="td">
+                    <BadgeControl product={p} onSaved={products.reload} />
                   </td>
                   <td className="td text-center">
                     <div className="flex justify-center">
@@ -299,6 +341,69 @@ export default function Products() {
   );
 }
 
+/**
+ * The urgency badge, edited inline on the product list.
+ *
+ * The shop writes its own line ("Few pieces remaining", "Selling fast") and it
+ * appears on the shop listing and product page. Exact stock counts are never
+ * published, so the badge can't be contradicted by a number sitting beside it —
+ * and a genuinely sold-out product always shows out of stock regardless.
+ */
+function BadgeControl({
+  product,
+  onSaved,
+}: {
+  product: Product;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState(product.badgeText ?? "");
+  const [active, setActive] = useState(product.badgeActive ?? false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const dirty = text !== (product.badgeText ?? "") || active !== (product.badgeActive ?? false);
+
+  async function save(nextActive = active, nextText = text) {
+    setBusy(true);
+    try {
+      await api.updateProduct(product.id, {
+        badgeText: nextText.trim() || null,
+        badgeActive: nextActive && !!nextText.trim(),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Toggle
+        checked={active}
+        disabled={busy || !text.trim()}
+        onChange={(v) => {
+          setActive(v);
+          void save(v, text);
+        }}
+        label="Show badge"
+      />
+      <input
+        className="field h-8 max-w-[200px] py-1 text-xs"
+        value={text}
+        placeholder="e.g. Few pieces remaining"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => dirty && save()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+      />
+      {saved && <Icon.Check className="h-4 w-4 text-whatsapp" />}
+    </div>
+  );
+}
+
 function ProductModal({
   product, categories, onClose, onSaved, onCategoryAdded,
 }: {
@@ -322,6 +427,9 @@ function ProductModal({
     active: product?.active ?? true,
   });
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
+  const [variants, setVariants] = useState<DraftVariant[]>(
+    () => (product?.variants ?? []).map(toDraft)
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -385,8 +493,14 @@ function ProductModal({
         })),
       };
 
-      if (product) await api.updateProduct(product.id, payload);
-      else await api.createProduct(payload);
+      const saved = product
+        ? await api.updateProduct(product.id, payload)
+        : await api.createProduct(payload);
+
+      // Variants are a separate call: the endpoint replaces the whole set and
+      // diffs by id, which keeps order history intact for options that already
+      // existed.
+      await api.saveVariants(saved.id, draftsToPayload(variants));
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -427,6 +541,14 @@ function ProductModal({
 
         <div className="sm:col-span-2">
           <ImageUploader images={images} onChange={setImages} />
+        </div>
+
+        <div className="sm:col-span-2 border-t border-ink-line pt-5">
+          <VariantEditor
+            variants={variants}
+            onChange={setVariants}
+            defaultRetail={form.retailPrice}
+          />
         </div>
 
         <div>
@@ -543,7 +665,13 @@ function ProductModal({
             type="number"
             value={form.stockQty}
             onChange={(e) => set("stockQty", e.target.value)}
+            disabled={variants.length > 0}
           />
+          {variants.length > 0 && (
+            <p className="mt-1 text-xs text-faint">
+              Ignored — stock is tracked per option below.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col justify-end gap-3">

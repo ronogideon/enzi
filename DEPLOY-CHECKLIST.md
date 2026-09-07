@@ -1,56 +1,84 @@
-# Deploy checklist — Enzi v0.4.2
+# Deploy checklist — Enzi v0.5.0 — Product variations
 
-No schema change. Redeploy the **storefront** (backend and admin are unchanged
-apart from the version stamp).
+**Schema change.** Run `npm run db:push` after deploying the backend.
+
+Existing products are untouched and keep working exactly as they do now — you
+add variants only where you want them.
 
 ---
 
-## Footer socials are now real links
+## Deploy
 
-They were placeholder letters in circles — "I", "T", "W" — that looked like
-buttons but weren't links at all. The footer now uses the same
-settings-driven brand icons as the side rail: Instagram, Facebook, TikTok, X,
-LinkedIn, YouTube and WhatsApp, each clickable, each opening in a new tab.
+1. **Backend** — redeploy, then `npm run db:push`
+   (adds `ProductVariant`, plus variant fields on products, images and order lines).
+2. **Admin** — redeploy.
+3. **Storefront** — redeploy.
 
-Same rule as the rail: **a blank field in Admin → Settings → Social links hides
-that icon**, so you only ever show profiles you actually run.
+---
 
-## Sitemap is linked in the footer
+## Adding options to a product
 
-Two places:
+**Admin → Products → Edit → Options** (below the photos).
 
-- **Company column** → "Sitemap"
-- **Bottom bar**, alongside Privacy Policy and Terms
+- **Add option** for one row at a time, or **Generate** when every colour comes
+  in the same sizes — type `White, Chocolate, Blue` and `8*10cm, 10*15cm` and it
+  creates the combinations. It only fills gaps, so running it again after adding
+  a colour is safe.
+- Each row has its **own price, own wholesale price and own stock**.
+- The toggle takes an option off sale without deleting it.
+- A product's own stock field is ignored once options exist — stock is tracked
+  per option.
 
-Both point at `/sitemap.xml`. Search engines find it through `robots.txt`
-regardless, but a visible link is what people and some crawlers look for.
+Removing an option that appears on past orders deactivates it rather than
+deleting, so order history stays intact.
 
-## Also in the footer
+---
 
-- **Delivery & charges** now appears under Shop — it was missing, which meant
-  the new delivery page was only reachable from the FAQs and the top nav.
-- Your **phone, email and address** are pulled from Settings and shown, with
-  the phone and email clickable (tap to call, tap to email on mobile).
-- The shop name in the footer comes from Settings rather than being hardcoded.
+## What customers see
 
-## One thing I fixed anyway
+Colour chips first, then **only the sizes that exist for that colour** — so
+White can have three sizes while Chocolate has two. Each size row shows its own
+price and its own quantity box, so one visit can order 25 of 8×10 and 40 of
+10×15 and add both together.
 
-You said not to worry about the social URL 404s, and entering full URLs does
-solve it. But it was a one-line change, so links now work **whether or not you
-include `https://`** — a value like `instagram.com/enzipackaging` is upgraded
-automatically instead of resolving to
-`enzipackaging.com/instagram.com/enzipackaging`.
+- Quantities are **typed, not just tapped** — with your minimum enforced on each
+  option, not spread across the order.
+- A sold-out colour or size is visibly unavailable and can't be added.
+- Picking a colour **switches the gallery** to that colour's photos, if you've
+  tagged photos to it. Untagged photos still show, so nothing breaks before you
+  do that.
 
-Worth having because the failure is silent: whoever edits these next won't hit
-the same trap, and nothing tells you it's broken except a customer finding a
-404.
+### Wholesale grouping
+
+Exactly as you described: **quantities combine across colours within a size, but
+never across sizes.**
+
+- 25 each of 4 colours in 8×10cm = 100 → wholesale ✓
+- 50 of 8×10 and 50 of 10×15 = two runs of 50 → neither qualifies ✓
+
+---
+
+## Stock display
+
+The storefront now only ever says **in stock** or **out of stock** — exact
+numbers never leave the API, so nobody can read your inventory.
+
+The urgency line is yours to write: **Admin → Products**, the **Urgency badge**
+column on each row. Toggle it on and type the text ("Few pieces remaining",
+"Selling fast"). It appears on both the shop listing and the product page.
+
+A genuinely sold-out product shows **out of stock** regardless of the badge.
 
 ---
 
 ## Worth checking
 
-- [ ] Footer social icons appear and each opens the right profile in a new tab.
-- [ ] Clear one social link in Settings → its icon disappears from both the
-      footer and the side rail.
-- [ ] Footer "Sitemap" link opens `/sitemap.xml`.
-- [ ] Footer shows your real phone/email/address from Settings.
+- [ ] An existing product without options still works exactly as before.
+- [ ] Add two colours × two sizes to one product; set different prices per size.
+- [ ] On the shop: pick a colour → only its sizes show; type 25 into one size
+      and 40 into another → both add to the cart as separate lines.
+- [ ] Set one option's stock to 0 → it shows unavailable and can't be added.
+- [ ] Set a wholesale minimum of 100 and buy 50 + 50 across two sizes → retail
+      price. Then 25 × 4 colours of one size → wholesale price.
+- [ ] Turn on an urgency badge → it appears on the listing card and the product
+      page.

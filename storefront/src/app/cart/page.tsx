@@ -24,7 +24,7 @@ export default function CartPage() {
     let cancelled = false;
     setLoading(true);
     api
-      .priceCart(items.map((i) => ({ productId: i.productId, quantity: i.quantity })))
+      .priceCart(items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? undefined, quantity: i.quantity })))
       .then((res) => !cancelled && setPriced(res))
       .catch(() => !cancelled && setPriced(null))
       .finally(() => !cancelled && setLoading(false));
@@ -79,11 +79,11 @@ export default function CartPage() {
         {/* lines */}
         <div className="stagger space-y-4">
           {items.map((item) => {
-            const line = priced?.lines.find((l) => l.productId === item.productId);
+            const line = priced?.lines.find((l) => l.productId === item.productId && (l.variantId ?? null) === (item.variantId ?? null));
             const unit = line?.unitPrice ?? item.unitPrice;
             const lineTotal = line?.lineTotal ?? unit * item.quantity;
             return (
-              <div key={item.productId} className="card flex gap-4 p-4">
+              <div key={item.key} className="card flex gap-4 p-4">
                 <Link href={`/product/${item.slug}`} className="shrink-0">
                   <SmartImage
                     src={item.imageUrl}
@@ -99,8 +99,11 @@ export default function CartPage() {
                     >
                       {item.name}
                     </Link>
+                    {item.variantLabel && (
+                      <p className="text-xs text-faint">{item.variantLabel}</p>
+                    )}
                     <button
-                      onClick={() => remove(item.productId)}
+                      onClick={() => remove(item.key)}
                       className="text-sm text-faint hover:text-red-400"
                       aria-label={`Remove ${item.name}`}
                     >
@@ -112,7 +115,7 @@ export default function CartPage() {
                   <div className="mt-auto flex items-center justify-between pt-3">
                     <QuantityInput
                       value={item.quantity}
-                      onChange={(q) => setQty(item.productId, q)}
+                      onChange={(q) => setQty(item.key, q)}
                     />
                     <span className="font-semibold text-white">
                       {formatKes(lineTotal)}

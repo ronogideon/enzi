@@ -1,7 +1,7 @@
 import type {
   Staff, StaffMember, Category, Product, Promotion, DeliveryMethod, Order,
   Customer, StockAudit, SmsCampaign, StatsOverview, SettingsMap, UploadedImage,
-  BlogPost, Faq, DeliveryZone,
+  BlogPost, Faq, DeliveryZone, ProductVariant,
 } from "./types";
 
 declare global {
@@ -270,6 +270,12 @@ export const api = {
   deleteProductForever: (id: string) =>
     req<{ ok: boolean }>(`/products/${id}?hard=true`, { method: "DELETE" }),
   restoreProduct: (id: string) => req<Product>(`/products/${id}/restore`, { method: "POST" }),
+
+  /** Replace a product's whole variant set. */
+  saveVariants: (productId: string, variants: unknown[]) =>
+    req<Product>(`/products/${productId}/variants`, { method: "PUT", body: { variants } }),
+  updateVariant: (variantId: string, body: unknown) =>
+    req<ProductVariant>(`/products/variants/${variantId}`, { method: "PATCH", body }),
   duplicateProduct: (id: string) => req<Product>(`/products/${id}/duplicate`, { method: "POST" }),
 
   // images

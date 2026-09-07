@@ -8,11 +8,31 @@ export interface Category {
   _count?: { products: number };
 }
 export interface ProductImage {
+  variantId?: string | null;
   id: string;
   url: string;
   alt?: string | null;
 }
+export interface ProductVariant {
+  id: string;
+  colour?: string | null;
+  size?: string | null;
+  colourHex?: string | null;
+  swatchMediaId?: string | null;
+  slug?: string | null;
+  retailPrice: number;
+  wholesalePrice?: number | null;
+  position?: number;
+  /** The API never exposes exact stock — only whether it can be bought. */
+  inStock: boolean;
+}
+
 export interface Product {
+  hasVariants?: boolean;
+  variants?: ProductVariant[];
+  inStock?: boolean;
+  badgeText?: string | null;
+  badgeActive?: boolean;
   createdAt?: string;
   id: string;
   name: string;
@@ -52,6 +72,9 @@ export interface DeliveryMethod {
 }
 export interface PricedLine {
   productId: string;
+  variantId?: string | null;
+  variantLabel?: string | null;
+  groupQty?: number;
   name: string;
   requestedQty: number;
   quantity: number;

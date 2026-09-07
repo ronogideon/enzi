@@ -55,7 +55,27 @@ export interface UploadedImage {
   id: string; url: string; filename: string; mimeType: string; size: number;
 }
 
+export interface ProductVariant {
+  id: string;
+  productId?: string;
+  colour?: string | null;
+  size?: string | null;
+  colourHex?: string | null;
+  swatchMediaId?: string | null;
+  sku?: string | null;
+  slug?: string | null;
+  retailPrice: number;
+  wholesalePrice?: number | null;
+  stockQty: number;
+  active: boolean;
+  position: number;
+}
+
 export interface Product {
+  hasVariants?: boolean;
+  variants?: ProductVariant[];
+  badgeText?: string | null;
+  badgeActive?: boolean;
   id: string; name: string; slug: string; description?: string | null;
   sku?: string | null;
   categoryId?: string | null; category?: Category | null;

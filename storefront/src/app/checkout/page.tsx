@@ -104,7 +104,7 @@ export default function CheckoutPage() {
     if (items.length === 0) return;
     api
       .priceCart(
-        items.map((i) => ({ productId: i.productId, quantity: i.quantity }))
+        items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? undefined, quantity: i.quantity }))
       )
       .then(setPriced)
       .catch(() => setPriced(null));
@@ -166,7 +166,7 @@ export default function CheckoutPage() {
         name: form.name.trim(),
         phone: normalizePhone(form.phone),
         email: form.email.trim() || undefined,
-        lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        lines: items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? undefined, quantity: i.quantity })),
         deliveryMethodId: methodId,
         deliveryZoneId: zoneId || undefined,
         deliveryDetails:

@@ -43,6 +43,43 @@ const imageSchema = z.object({
   mediaId: z.string().optional(),
 });
 
+/**
+ * Shape a product for public consumption.
+ *
+ * Exact stock counts never leave the API: the storefront only needs to know
+ * whether something can be bought. That keeps a competitor from reading your
+ * inventory, and it means the urgency badge is the shop's own words rather than
+ * a number that might contradict them.
+ */
+function publicProduct(p: any) {
+  const variants = (p.variants ?? []).map((v: any) => ({
+    id: v.id,
+    colour: v.colour,
+    size: v.size,
+    colourHex: v.colourHex,
+    swatchMediaId: v.swatchMediaId,
+    slug: v.slug,
+    retailPrice: v.retailPrice,
+    wholesalePrice: v.wholesalePrice,
+    position: v.position,
+    inStock: v.stockQty > 0,
+  }));
+
+  const inStock = p.hasVariants
+    ? variants.some((v: any) => v.inStock)
+    : p.stockQty > 0;
+
+  const { stockQty, ...rest } = p;
+  return {
+    ...rest,
+    variants,
+    inStock,
+    effectivePrice: effectiveUnitPrice(p, "RETAIL", p.promotions ?? []),
+    effectiveWholesalePrice:
+      p.wholesalePrice == null ? null : effectiveUnitPrice(p, "WHOLESALE", p.promotions ?? []),
+  };
+}
+
 function extractMediaId(url: string): string | null {
   const m = /^\/api\/media\/([A-Za-z0-9_-]+)$/.exec(url);
   return m ? m[1] : null;
@@ -63,6 +100,7 @@ productsRouter.get(
       where,
       include: {
         images: { orderBy: { position: "asc" } },
+        variants: { where: { active: true }, orderBy: { position: "asc" } },
         category: true,
         promotions: true,
       },
@@ -73,16 +111,7 @@ productsRouter.get(
     // automatically by quantity, so the storefront needs to show the threshold
     // and the bulk rate on every card without asking who the buyer is.
     void tier;
-    res.json(
-      products.map((p) => ({
-        ...p,
-        effectivePrice: effectiveUnitPrice(p, "RETAIL", p.promotions),
-        effectiveWholesalePrice:
-          p.wholesalePrice == null
-            ? null
-            : effectiveUnitPrice(p, "WHOLESALE", p.promotions),
-      }))
-    );
+    res.json(products.map((p) => publicProduct(p)));
   })
 );
 
@@ -99,6 +128,7 @@ productsRouter.get(
       where: search ? { name: { contains: search, mode: "insensitive" } } : undefined,
       include: {
         images: { orderBy: { position: "asc" } },
+        variants: { orderBy: { position: "asc" } },
         category: true,
         promotions: true,
         _count: { select: { orderItems: true } },
@@ -131,12 +161,13 @@ productsRouter.get(
       where: { slug: req.params.slug },
       include: {
         images: { orderBy: { position: "asc" } },
+        variants: { where: { active: true }, orderBy: { position: "asc" } },
         category: true,
         promotions: true,
       },
     });
     if (!product || !product.active) throw new HttpError(404, "Product not found");
-    res.json(product);
+    res.json(publicProduct(product));
   })
 );
 
@@ -155,6 +186,24 @@ const upsertSchema = z.object({
   active: z.boolean().default(true),
   sku: z.string().optional().nullable(),
   images: z.array(imageSchema).max(12).optional(),
+  hasVariants: z.boolean().optional(),
+  badgeText: z.string().max(60).optional().nullable(),
+  badgeActive: z.boolean().optional(),
+});
+
+/** A colour/size combination with its own price, stock and optional swatch. */
+const variantSchema = z.object({
+  id: z.string().optional(),
+  colour: z.string().max(60).optional().nullable(),
+  size: z.string().max(60).optional().nullable(),
+  colourHex: z.string().max(9).optional().nullable(),
+  swatchMediaId: z.string().optional().nullable(),
+  sku: z.string().max(60).optional().nullable(),
+  retailPrice: z.number().int().nonnegative(),
+  wholesalePrice: z.number().int().nonnegative().optional().nullable(),
+  stockQty: z.number().int().default(0),
+  active: z.boolean().default(true),
+  position: z.number().int().optional(),
 });
 
 productsRouter.post(
@@ -286,6 +335,120 @@ productsRouter.delete(
     });
 
     res.json({ ok: true, deleted: true });
+  })
+);
+
+// ------------------------------------------------------------------ variants
+
+function variantSlug(productSlug: string, colour?: string | null, size?: string | null) {
+  const part = [colour, size]
+    .filter(Boolean)
+    .join("-")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return part ? `${productSlug}-${part}` : null;
+}
+
+/**
+ * Replace a product's whole variant set in one call.
+ *
+ * Sent as the full list, like images: the admin grid always knows the complete
+ * intended state, and diffing on the server keeps ids (and therefore order
+ * history) stable for variants that already existed.
+ */
+productsRouter.put(
+  "/:id/variants",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { variants } = z
+      .object({ variants: z.array(variantSchema).max(200) })
+      .parse(req.body);
+
+    const product = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      include: { variants: true },
+    });
+    if (!product) throw new HttpError(404, "Product not found");
+
+    // Guard the combination being unique — two "White / 8*10cm" rows would be
+    // ambiguous at checkout.
+    const seen = new Set<string>();
+    for (const v of variants) {
+      const key = `${(v.colour ?? "").toLowerCase()}::${(v.size ?? "").toLowerCase()}`;
+      if (seen.has(key))
+        throw new HttpError(
+          400,
+          `Duplicate option: ${[v.colour, v.size].filter(Boolean).join(" / ") || "(blank)"}`
+        );
+      seen.add(key);
+    }
+
+    const keepIds = variants.map((v) => v.id).filter(Boolean) as string[];
+
+    await prisma.$transaction(async (tx) => {
+      // Variants that were removed: deactivate if they carry order history,
+      // delete outright otherwise — the same rule products follow.
+      const removed = product.variants.filter((v: any) => !keepIds.includes(v.id));
+      for (const r of removed) {
+        const used = await tx.orderItem.count({ where: { variantId: r.id } });
+        if (used > 0)
+          await tx.productVariant.update({ where: { id: r.id }, data: { active: false } });
+        else await tx.productVariant.delete({ where: { id: r.id } });
+      }
+
+      for (const [i, v] of variants.entries()) {
+        const data = {
+          colour: v.colour?.trim() || null,
+          size: v.size?.trim() || null,
+          colourHex: v.colourHex?.trim() || null,
+          swatchMediaId: v.swatchMediaId || null,
+          sku: v.sku?.trim() || null,
+          retailPrice: v.retailPrice,
+          wholesalePrice: v.wholesalePrice ?? null,
+          stockQty: v.stockQty,
+          active: v.active,
+          position: v.position ?? i,
+          slug: variantSlug(product.slug, v.colour, v.size),
+        };
+        if (v.id) await tx.productVariant.update({ where: { id: v.id }, data });
+        else await tx.productVariant.create({ data: { ...data, productId: product.id } });
+      }
+
+      await tx.product.update({
+        where: { id: product.id },
+        data: { hasVariants: variants.length > 0 },
+      });
+    });
+
+    const fresh = await prisma.product.findUnique({
+      where: { id: product.id },
+      include: {
+        variants: { orderBy: { position: "asc" } },
+        images: { orderBy: { position: "asc" } },
+        category: true,
+      },
+    });
+    res.json(fresh);
+  })
+);
+
+/** Adjust one variant's stock without touching the rest. */
+productsRouter.patch(
+  "/variants/:variantId",
+  requireStaff,
+  wrap(async (req, res) => {
+    const data = variantSchema.partial().parse(req.body);
+    res.json(
+      await prisma.productVariant.update({
+        where: { id: req.params.variantId },
+        data: {
+          ...data,
+          colour: data.colour === undefined ? undefined : data.colour?.trim() || null,
+          size: data.size === undefined ? undefined : data.size?.trim() || null,
+        },
+      })
+    );
   })
 );
 

@@ -3,8 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { formatKes } from "@/lib/money";
-import { ProductGallery } from "@/components/ProductGallery";
-import { AddToCartPanel } from "@/components/AddToCartPanel";
+import { ProductBuyPanel } from "@/components/ProductBuyPanel";
 import { ProductCard } from "@/components/ProductCard";
 
 export async function generateMetadata({
@@ -56,43 +55,7 @@ export default async function ProductPage({
         <span className="text-muted">{product.name}</span>
       </nav>
 
-      <div className="grid animate-rise gap-10 lg:grid-cols-2 lg:items-start lg:gap-14">
-        {/* gallery */}
-        <ProductGallery images={product.images ?? []} name={product.name} />
-
-        {/* info */}
-        <div>
-          {product.category && (
-            <p className="eyebrow">{product.category.name}</p>
-          )}
-          <h1 className="display mt-3 text-3xl md:text-4xl">{product.name}</h1>
-
-          <p className="mt-3 flex flex-wrap items-center gap-x-2 text-sm text-muted">
-            {product.stockQty > 0 ? (
-              <span className="text-whatsapp">In stock</span>
-            ) : (
-              <span className="text-faint">Currently out of stock</span>
-            )}
-            {onSale && (
-              <>
-                <span aria-hidden>·</span>
-                <span className="rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-ink">
-                  Sale
-                </span>
-                <span className="text-faint line-through">{formatKes(base)}</span>
-              </>
-            )}
-          </p>
-
-          {product.description && (
-            <p className="mt-6 leading-relaxed text-muted">
-              {product.description}
-            </p>
-          )}
-
-          <AddToCartPanel product={product} />
-        </div>
-      </div>
+      <ProductBuyPanel product={product} />
 
       {/* related */}
       {related.length > 0 && (
