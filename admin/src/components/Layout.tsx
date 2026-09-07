@@ -112,7 +112,7 @@ export function Layout() {
         if (!groupItems.length) return null;
         return (
           <div key={group} className="mb-5">
-            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+            <p className="mb-1.5 whitespace-nowrap px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint transition-opacity duration-150 lg:opacity-0 lg:group-hover/sb:opacity-100">
               {group}
             </p>
             <div className="space-y-0.5">
@@ -130,7 +130,7 @@ export function Layout() {
                           }`}
                         />
                         <Glyph className={isActive ? "h-[18px] w-[18px] text-white" : "h-[18px] w-[18px]"} />
-                        <span className="truncate">{n.label}</span>
+                        <span className="truncate whitespace-nowrap">{n.label}</span>
                       </>
                     )}
                   </NavLink>
@@ -169,11 +169,31 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-ink-line bg-ink-800/40 lg:flex">
-        <div className="px-6 py-6">{brand}</div>
-        <nav className="relative flex-1 overflow-y-auto px-3">{navList}</nav>
-        {footer}
+      {/*
+        Desktop sidebar: a 16-wide rail of icons that expands to the full menu
+        when the pointer comes near it.
+
+        The rail is a fixed overlay with a same-width spacer holding its place,
+        so expanding never reflows the page — the product table keeps every
+        pixel it had. That table is the widest screen in the admin and was
+        being cut off; giving it back ~11rem is the difference between fitting
+        at 100% zoom and not.
+      */}
+      <div className="hidden w-16 shrink-0 lg:block" aria-hidden />
+      <aside
+        className="group/sb fixed inset-y-0 left-0 z-40 hidden w-16 flex-col overflow-hidden border-r border-ink-line bg-ink-900 transition-[width] duration-200 ease-out hover:w-60 hover:shadow-2xl lg:flex"
+      >
+        <div className="flex h-[72px] shrink-0 items-center px-4">
+          {/* Monogram while collapsed, full wordmark once open. */}
+          <span className="font-display text-xl font-extrabold tracking-tight text-white group-hover/sb:hidden">
+            E
+          </span>
+          <div className="hidden group-hover/sb:block">{brand}</div>
+        </div>
+        <nav className="relative flex-1 overflow-y-auto overflow-x-hidden px-3">
+          {navList}
+        </nav>
+        <div className="hidden group-hover/sb:block">{footer}</div>
       </aside>
 
       {/* Mobile drawer */}

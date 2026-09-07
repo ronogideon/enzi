@@ -2,8 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { Product, ProductVariant } from "@/lib/types";
-import { useCart } from "@/lib/cart";
-import { useToast } from "@/components/Toast";
 import { formatKes } from "@/lib/money";
 import { imageUrl } from "@/lib/api";
 
@@ -22,13 +20,21 @@ import { imageUrl } from "@/lib/api";
 export function VariantSelector({
   product,
   variants: incoming,
+  quantities,
+  onQuantityChange,
+  onAdd,
+  summary,
 }: {
   product: Product;
   /** The sizes for the colour currently on screen. */
   variants: ProductVariant[];
+  /** Quantities across EVERY colour, keyed by variant id. */
+  quantities: Record<string, number>;
+  onQuantityChange: (variantId: string, qty: number) => void;
+  onAdd: () => void;
+  /** Totals across all colours, for the summary line. */
+  summary: { units: number; cost: number; wholesaleApplied: boolean };
 }) {
-  const { addMany } = useCart();
-  const { toast } = useToast();
 
   const variants = useMemo(
     () => incoming.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
@@ -36,25 +42,13 @@ export function VariantSelector({
   );
 
   const sizes = variants;
-
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const minQty = Math.max(1, product.retailMinQty ?? 1);
+  const setQty = onQuantityChange;
 
-  function setQty(variantId: string, raw: number) {
-    setQuantities((q) => {
-      const next = { ...q };
-      if (!raw || raw <= 0) delete next[variantId];
-      else next[variantId] = raw;
-      return next;
-    });
-  }
-
-  const chosen = Object.entries(quantities)
-    .map(([id, quantity]) => ({
-      variant: variants.find((v) => v.id === id)!,
-      quantity,
-    }))
-    .filter((e) => e.variant);
+  // Only this colour's lines — the parent owns the full picture.
+  const chosen = variants
+    .map((variant) => ({ variant, quantity: quantities[variant.id] ?? 0 }))
+    .filter((e) => e.quantity > 0);
 
   const wholesaleMin = Math.max(1, product.wholesaleMinQty ?? 1);
 
@@ -72,30 +66,14 @@ export function VariantSelector({
   const priceFor = (v: ProductVariant, qty: number) =>
     v.wholesalePrice != null && qty >= wholesaleMin ? v.wholesalePrice : v.retailPrice;
 
-  const totalUnits = chosen.reduce((n, e) => n + e.quantity, 0);
-  const totalCost = chosen.reduce(
-    (n, e) => n + priceFor(e.variant, e.quantity) * e.quantity,
-    0
-  );
-  const wholesaleLines = chosen.filter(
-    (e) => e.variant.wholesalePrice != null && e.quantity >= wholesaleMin
-  );
 
   // Every line must clear the minimum — the floor is per option, not per order.
+  // Checked against ALL colours, not just the one on screen: someone who put 60
+  // into black then switched to pink would otherwise find the button dead.
   const belowMin = chosen.filter((e) => e.quantity < minQty);
-  const canAdd = chosen.length > 0 && belowMin.length === 0;
+  const canAdd = summary.units > 0 && belowMin.length === 0;
 
-  function handleAdd() {
-    if (!canAdd) return;
-    addMany(product, chosen);
-    setQuantities({});
-    toast(
-      chosen.length === 1
-        ? "Added to cart"
-        : `${chosen.length} options added to cart`,
-      { duration: 2000 }
-    );
-  }
+  const handleAdd = onAdd;
 
   if (!variants.length) return null;
 
@@ -115,12 +93,17 @@ export function VariantSelector({
             return (
               <div
                 key={v.id}
-                className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 sm:px-4 ${
+                /* One row on every screen: name takes the slack, price and
+                   stepper sit tight to the right. The name previously forced
+                   its own line on mobile, wasting the width entirely. */
+                className={`flex items-center gap-3 px-3 py-2.5 sm:px-4 ${
                   v.inStock ? "" : "opacity-50"
                 }`}
               >
-                <span className="min-w-0 flex-1 basis-full sm:basis-auto">
-                  <span className="text-sm text-cloud">{v.size || v.colour || "Standard"}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-cloud">
+                    {v.size || v.colour || "Standard"}
+                  </span>
                   {!v.inStock && (
                     <span className="ml-2 text-xs text-faint">Out of stock</span>
                   )}
@@ -155,11 +138,11 @@ export function VariantSelector({
       {/* ---- running total + add ---- */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
         <div className="text-sm">
-          {totalUnits > 0 ? (
+          {summary.units > 0 ? (
             <>
-              <span className="text-muted">{totalUnits} pcs · </span>
-              <span className="font-medium text-white">{formatKes(totalCost)}</span>
-              {wholesaleLines.length > 0 && (
+              <span className="text-muted">{summary.units} pcs · </span>
+              <span className="font-medium text-white">{formatKes(summary.cost)}</span>
+              {summary.wholesaleApplied && (
                 <span className="ml-2 text-xs text-whatsapp">wholesale price applied</span>
               )}
               {/* Wholesale is earned per size across colours, so the count that

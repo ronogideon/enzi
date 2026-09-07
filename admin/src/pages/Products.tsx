@@ -268,9 +268,11 @@ export default function Products() {
               {visible.map((p) => (
                 <Fragment key={p.id}>
                 <tr
-                  className={`border-b border-ink-line/60 ${
-                    busyId === p.id ? "opacity-50" : ""
-                  }`}
+                  className={`${
+                    expanded.has(p.id) && (p.variants?.length ?? 0) > 0
+                      ? ""
+                      : "border-b border-ink-line/60"
+                  } ${busyId === p.id ? "opacity-50" : ""}`}
                 >
                   <td className="td">
                     <div className="flex items-center gap-3">
@@ -393,11 +395,18 @@ export default function Products() {
                   (p.variants ?? [])
                     .slice()
                     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-                    .map((v) => (
+                    .map((v, vi, arr) => (
                       /* Echoes the parent's columns so the eye reads straight
                          down. Dimmed, no dividers, and no toggles — those stay
                          on the listing they actually control. */
-                      <tr key={v.id} className="bg-ink-800/25 text-muted opacity-75">
+                      <tr
+                        key={v.id}
+                        className={`bg-ink-800/25 text-muted opacity-75 ${
+                          vi === arr.length - 1
+                            ? "border-b border-ink-line/60"
+                            : "border-b border-ink-line/20"
+                        }`}
+                      >
                         <td className="td">
                           <div className="flex items-center gap-3 pl-[3.5rem]">
                             <span className="text-cloud">{v.size || "Standard"}</span>

@@ -1,61 +1,54 @@
-# Deploy checklist — Enzi v0.5.2
+# Deploy checklist — Enzi v0.5.3
 
-No schema change. Redeploy admin and storefront (backend is version-only).
+No schema change. Redeploy admin and storefront.
 
 ---
 
-## Product page now prices at the wholesale rate
+## Quantities now survive a colour switch
 
-Your screenshot showed 100 × A4 totalling Ksh 3,500 — the retail rate — while
-the cart correctly charged Ksh 3,800 for 100 × A3 at its wholesale price. The
-product page was multiplying by `retailPrice` regardless of quantity.
+This was the important one. Switching colour remounted the selector and wiped
+whatever had been typed — punishing exactly the shopper your pricing rewards,
+since wholesale is earned *across* colours.
 
-Now each size row prices at the rate it has earned:
+Now:
 
-- The row's price switches to the wholesale figure once its quantity reaches
-  your minimum, with a small **wholesale** note under it.
-- The running total uses those rates, and says **"wholesale price applied"**.
+- Quantities are held for **every colour at once**. Put 60 into Black, switch to
+  Pink, add 60 more, and add them all in one go.
+- Each colour chip carries a **green bubble** showing how many pieces are
+  pending against it, so nothing looks lost when you switch.
+- **Add to cart** stays enabled while any colour has a selection, and adds the
+  whole lot together.
+- The running total counts **across colours and by size**, so 60 Black + 60 Pink
+  of one size correctly reaches a 100 threshold and prices at wholesale on the
+  page — matching what the cart will charge.
 
-One honest limit: the page can only count what's on screen — this colour.
-Wholesale also counts **across colours**, so a buyer taking 60 black and 60 pink
-of the same size qualifies at the cart even though neither page alone shows it.
-The page is therefore a floor, never an overstatement — it will never promise a
-wholesale price the cart won't honour.
+## Size rows use the width
 
-## Mobile overflow fixed
+Size, price and the quantity stepper now sit on **one line** at every screen
+size, and the rows are shorter. On a phone the size name was taking a line of
+its own with the price and stepper beneath, wasting the full width.
 
-The cart row had the product name, variant, wholesale note and Remove all
-competing in one horizontal row, which pushed the price and Remove off-screen.
-The name now shares its line only with Remove; everything else stacks beneath.
-Image and padding shrink on small screens, and the quantity control uses its
-compact size.
+## Admin: nothing cut off at 100%
 
-Product-page size rows also wrap properly now — on a narrow phone the size name
-takes its own line, with price and quantity below.
+The sidebar is now a **narrow rail of icons** that expands to the full menu when
+your pointer approaches it. It's an overlay with a fixed-width spacer, so
+expanding never shifts the page — the product table keeps every pixel, gaining
+about 11rem. That's the difference between fitting at 100% zoom and not.
 
-## Admin product list fits at 100%
+## Dividers around expanded sizes
 
-- Narrower minimum width, tighter cell padding, slightly smaller type, shorter
-  column headers (Badge / Feat. / Live).
-- No more side-to-side scrolling at normal zoom on a standard laptop screen.
-
-## Expanded sizes look like the listing
-
-Clicking a product name now reveals its sizes as **rows in the same table**,
-aligned to the same columns:
-
-- No dividers, dimmed slightly so the parent still reads as the main row.
-- **No toggles** — those stay on the listing they control.
-- The price column shows **that size's own price**, not the range.
-- Stock shows for that size.
+- The full horizontal rule now closes the **whole listing**, after its sizes.
+- Sizes are separated by **faint** lines between themselves.
+- A collapsed listing keeps its divider exactly as before.
 
 ---
 
 ## Worth checking
 
-- [ ] Product page: type 100 into a size → the row price drops to wholesale and
-      the total reflects it.
-- [ ] Cart on a phone: nothing overflows; Remove and the price are both visible.
-- [ ] Admin Products at 100% zoom: no horizontal scrolling.
-- [ ] Click a product name: sizes appear as aligned rows with their own prices,
-      no toggles.
+- [ ] Product page: enter 50 in Black, switch to Pink → the Black chip shows a
+      "50" bubble and the numbers are still there when you switch back.
+- [ ] Enter 60 Black + 60 Pink of the same size with a 100 minimum → the total
+      shows the wholesale rate, and the cart agrees.
+- [ ] Phone: size, price and stepper on one line.
+- [ ] Admin at 100% zoom: full table visible; sidebar expands on hover.
+- [ ] Expand a listing: faint lines between sizes, solid rule under the last one.
