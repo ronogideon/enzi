@@ -246,8 +246,11 @@ export default function Products() {
           ))}
         </div>
 
-        <div className="card hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1040px]">
+        {/* Compact cell padding here specifically: this table carries more
+            columns than any other screen and was forcing horizontal scrolling
+            at 100% zoom. */}
+        <div className="card hidden overflow-x-auto md:block [&_td]:px-2.5 [&_td]:py-2.5 [&_th]:px-2.5 [&_th]:py-2.5">
+          <table className="w-full min-w-[880px] text-[13px]">
             <thead className="border-b border-ink-line">
               <tr>
                 <th className="th">Product</th>
@@ -255,9 +258,9 @@ export default function Products() {
                 <th className="th text-right">Retail</th>
                 <th className="th text-right">Wholesale</th>
                 <th className="th text-right">Stock</th>
-                <th className="th">Urgency badge</th>
-                <th className="th text-center">Featured</th>
-                <th className="th text-center">In shop</th>
+                <th className="th">Badge</th>
+                <th className="th text-center">Feat.</th>
+                <th className="th text-center">Live</th>
                 <th className="th"></th>
               </tr>
             </thead>
@@ -386,13 +389,49 @@ export default function Products() {
                   </td>
                 </tr>
 
-                {expanded.has(p.id) && (
-                  <tr className="border-b border-ink-line/60 bg-ink-800/30">
-                    <td colSpan={9} className="px-4 py-3">
-                      <SizeBreakdown product={p} />
-                    </td>
-                  </tr>
-                )}
+                {expanded.has(p.id) &&
+                  (p.variants ?? [])
+                    .slice()
+                    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+                    .map((v) => (
+                      /* Echoes the parent's columns so the eye reads straight
+                         down. Dimmed, no dividers, and no toggles — those stay
+                         on the listing they actually control. */
+                      <tr key={v.id} className="bg-ink-800/25 text-muted opacity-75">
+                        <td className="td">
+                          <div className="flex items-center gap-3 pl-[3.5rem]">
+                            <span className="text-cloud">{v.size || "Standard"}</span>
+                            {!v.active && (
+                              <span className="text-[10px] text-faint">(off)</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="td" />
+                        <td className="td whitespace-nowrap text-right">
+                          {formatKes(v.retailPrice)}
+                        </td>
+                        <td className="td whitespace-nowrap text-right">
+                          {v.wholesalePrice != null ? formatKes(v.wholesalePrice) : "—"}
+                        </td>
+                        <td className="td text-right">
+                          <Badge
+                            tone={
+                              (v.stockQty ?? 0) <= 0
+                                ? "danger"
+                                : (v.stockQty ?? 0) <= 10
+                                ? "gold"
+                                : "muted"
+                            }
+                          >
+                            {v.stockQty ?? 0}
+                          </Badge>
+                        </td>
+                        <td className="td" />
+                        <td className="td" />
+                        <td className="td" />
+                        <td className="td" />
+                      </tr>
+                    ))}
                 </Fragment>
               ))}
             </tbody>
@@ -465,37 +504,32 @@ function SizeBreakdown({ product }: { product: Product }) {
   }
 
   return (
-    <div className="pl-5">
-      <div className="grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))]">
-        {sizes.map((v) => {
-          const out = (v.stockQty ?? 0) <= 0;
-          return (
-            <div
-              key={v.id}
-              className={`flex items-center justify-between gap-3 rounded-lg border border-ink-line px-3 py-2 ${
-                v.active ? "" : "opacity-50"
-              }`}
-            >
-              <span className="min-w-0 truncate text-cloud">
-                {v.size || "Standard"}
-                {!v.active && <span className="ml-1.5 text-faint">(off)</span>}
-              </span>
-              <span className="shrink-0 text-muted">
-                {formatKes(v.retailPrice)}
-                {v.wholesalePrice != null && (
-                  <span className="text-faint"> / {formatKes(v.wholesalePrice)}</span>
-                )}
-              </span>
-              <Badge tone={out ? "danger" : (v.stockQty ?? 0) <= 10 ? "gold" : "muted"}>
-                {v.stockQty ?? 0}
-              </Badge>
-            </div>
-          );
-        })}
-      </div>
-      <p className="mt-2 text-[10px] text-faint">
-        Retail / wholesale per size · stock on the right
-      </p>
+    <div className="space-y-1 opacity-75">
+      {sizes.map((v) => {
+        const out = (v.stockQty ?? 0) <= 0;
+        return (
+          <div
+            key={v.id}
+            className={`flex items-center justify-between gap-3 py-1 text-xs ${
+              v.active ? "" : "opacity-50"
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate text-cloud">
+              {v.size || "Standard"}
+              {!v.active && <span className="ml-1.5 text-faint">(off)</span>}
+            </span>
+            <span className="shrink-0 text-muted">
+              {formatKes(v.retailPrice)}
+              {v.wholesalePrice != null && (
+                <span className="text-faint"> / {formatKes(v.wholesalePrice)}</span>
+              )}
+            </span>
+            <Badge tone={out ? "danger" : (v.stockQty ?? 0) <= 10 ? "gold" : "muted"}>
+              {v.stockQty ?? 0}
+            </Badge>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -563,7 +597,7 @@ function BadgeControl({
         label="Show badge"
       />
       <input
-        className="field h-8 max-w-[200px] py-1 text-xs"
+        className="field h-8 max-w-[150px] py-1 text-xs"
         value={text}
         placeholder="e.g. Few pieces remaining"
         onChange={(e) => setText(e.target.value)}

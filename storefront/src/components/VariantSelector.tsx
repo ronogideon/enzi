@@ -56,8 +56,30 @@ export function VariantSelector({
     }))
     .filter((e) => e.variant);
 
+  const wholesaleMin = Math.max(1, product.wholesaleMinQty ?? 1);
+
+  /**
+   * Price each size at the rate it has actually earned.
+   *
+   * Wholesale is won per size, so a line qualifies on its own quantity — the
+   * total was previously computed at retail regardless, which is why the page
+   * said Ksh 3,500 for 100 while the cart correctly charged the wholesale rate.
+   *
+   * The page can only count what's on screen (this colour). Wholesale also
+   * counts across colours, so this is a floor: a buyer adding a second colour
+   * can qualify at the cart even if this page hasn't shown it yet.
+   */
+  const priceFor = (v: ProductVariant, qty: number) =>
+    v.wholesalePrice != null && qty >= wholesaleMin ? v.wholesalePrice : v.retailPrice;
+
   const totalUnits = chosen.reduce((n, e) => n + e.quantity, 0);
-  const totalCost = chosen.reduce((n, e) => n + e.variant.retailPrice * e.quantity, 0);
+  const totalCost = chosen.reduce(
+    (n, e) => n + priceFor(e.variant, e.quantity) * e.quantity,
+    0
+  );
+  const wholesaleLines = chosen.filter(
+    (e) => e.variant.wholesalePrice != null && e.quantity >= wholesaleMin
+  );
 
   // Every line must clear the minimum — the floor is per option, not per order.
   const belowMin = chosen.filter((e) => e.quantity < minQty);
@@ -93,11 +115,11 @@ export function VariantSelector({
             return (
               <div
                 key={v.id}
-                className={`flex flex-wrap items-center gap-3 px-4 py-3 ${
+                className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 sm:px-4 ${
                   v.inStock ? "" : "opacity-50"
                 }`}
               >
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <span className="text-sm text-cloud">{v.size || v.colour || "Standard"}</span>
                   {!v.inStock && (
                     <span className="ml-2 text-xs text-faint">Out of stock</span>
@@ -109,8 +131,13 @@ export function VariantSelector({
                   )}
                 </span>
 
-                <span className="shrink-0 text-sm font-medium text-white">
-                  {formatKes(v.retailPrice)}
+                <span className="shrink-0 text-right text-sm">
+                  <span className="font-medium text-white">
+                    {formatKes(priceFor(v, qty))}
+                  </span>
+                  {v.wholesalePrice != null && qty >= wholesaleMin && (
+                    <span className="block text-[10px] text-whatsapp">wholesale</span>
+                  )}
                 </span>
 
                 <QtyBox
@@ -132,6 +159,9 @@ export function VariantSelector({
             <>
               <span className="text-muted">{totalUnits} pcs · </span>
               <span className="font-medium text-white">{formatKes(totalCost)}</span>
+              {wholesaleLines.length > 0 && (
+                <span className="ml-2 text-xs text-whatsapp">wholesale price applied</span>
+              )}
               {/* Wholesale is earned per size across colours, so the count that
                   matters is per size — spell that out rather than letting a
                   buyer assume the cart total decides it. */}

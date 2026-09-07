@@ -83,46 +83,55 @@ export default function CartPage() {
             const unit = line?.unitPrice ?? item.unitPrice;
             const lineTotal = line?.lineTotal ?? unit * item.quantity;
             return (
-              <div key={item.key} className="card flex gap-4 p-4">
+              /* The name, variant and wholesale note stack vertically; only
+                 the name row shares space with Remove. Previously all four sat
+                 in one horizontal flex, which overflowed on a phone. */
+              <div key={item.key} className="card flex gap-3 p-3 sm:gap-4 sm:p-4">
                 <Link href={`/product/${item.slug}`} className="shrink-0">
                   <SmartImage
                     src={item.imageUrl}
                     alt={item.name}
-                    className="h-24 w-24 rounded-xl object-cover"
+                    className="h-20 w-20 rounded-xl object-cover sm:h-24 sm:w-24"
                   />
                 </Link>
-                <div className="flex flex-1 flex-col">
-                  <div className="flex items-start justify-between gap-4">
+
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex items-start justify-between gap-2">
                     <Link
                       href={`/product/${item.slug}`}
-                      className="font-display font-bold text-white hover:text-white"
+                      className="min-w-0 font-display font-bold leading-tight text-white"
                     >
                       {item.name}
                     </Link>
-                    {item.variantLabel && (
-                      <p className="text-xs text-faint">{item.variantLabel}</p>
-                    )}
-                    {line?.tier === "WHOLESALE" ? (
-                      <p className="text-xs text-whatsapp">Wholesale price applied</p>
-                    ) : line && (line.unitsToWholesale ?? 0) > 0 ? (
-                      <p className="text-xs text-gold">
-                        {line.unitsToWholesale} more of this size for the wholesale price
-                      </p>
-                    ) : null}
                     <button
                       onClick={() => remove(item.key)}
-                      className="text-sm text-faint hover:text-red-400"
+                      className="shrink-0 text-xs text-faint transition-colors hover:text-red-400"
                       aria-label={`Remove ${item.name}`}
                     >
                       Remove
                     </button>
                   </div>
-                  <p className="mt-1 text-sm text-muted">{formatKes(unit)} each</p>
 
-                  <div className="mt-auto flex items-center justify-between pt-3">
+                  {item.variantLabel && (
+                    <p className="mt-0.5 text-xs text-faint">{item.variantLabel}</p>
+                  )}
+
+                  <p className="mt-0.5 text-sm text-muted">{formatKes(unit)} each</p>
+
+                  {line?.tier === "WHOLESALE" ? (
+                    <p className="mt-0.5 text-xs text-whatsapp">Wholesale price applied</p>
+                  ) : line && (line.unitsToWholesale ?? 0) > 0 ? (
+                    <p className="mt-0.5 text-xs text-gold">
+                      {line.unitsToWholesale} more of this size for the wholesale price
+                    </p>
+                  ) : null}
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-1">
                     <QuantityInput
                       value={item.quantity}
+                      min={item.minQty}
                       onChange={(q) => setQty(item.key, q)}
+                      size="sm"
                     />
                     <span className="font-semibold text-white">
                       {formatKes(lineTotal)}
