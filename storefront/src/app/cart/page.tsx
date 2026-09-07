@@ -102,6 +102,13 @@ export default function CartPage() {
                     {item.variantLabel && (
                       <p className="text-xs text-faint">{item.variantLabel}</p>
                     )}
+                    {line?.tier === "WHOLESALE" ? (
+                      <p className="text-xs text-whatsapp">Wholesale price applied</p>
+                    ) : line && (line.unitsToWholesale ?? 0) > 0 ? (
+                      <p className="text-xs text-gold">
+                        {line.unitsToWholesale} more of this size for the wholesale price
+                      </p>
+                    ) : null}
                     <button
                       onClick={() => remove(item.key)}
                       className="text-sm text-faint hover:text-red-400"

@@ -25,6 +25,8 @@ export interface PricedLine {
   wholesaleMinQty: number | null;
   /** Combined quantity of the group this line counts toward. */
   groupQty: number;
+  /** Units still needed for this group to reach the wholesale price. */
+  unitsToWholesale: number;
   /** What this line would have cost per unit at retail. */
   retailUnitPrice: number;
   /** Cents saved on this line by the wholesale price. 0 when not applicable. */
@@ -51,8 +53,16 @@ export interface PricedCart {
  * Products without variants group by product alone, which preserves the old
  * behaviour exactly.
  */
-function groupKey(productId: string, size: string | null, unitPrice: number): string {
-  return `${productId}::${size ?? ""}::${unitPrice}`;
+function groupKey(
+  groupId: string | null,
+  productId: string,
+  size: string | null,
+  unitPrice: number
+): string {
+  // Colours are separate listings that share a groupId, so the key is the
+  // GROUP (falling back to the product when it has no siblings) plus the size.
+  // That's what lets 25 each of four colours in 8*10cm add up to 100.
+  return `${groupId ?? productId}::${size ?? ""}::${unitPrice}`;
 }
 
 /**
@@ -143,7 +153,7 @@ export async function priceCart(
       retailUnitPrice,
       wholesaleUnitPrice,
       wholesaleMinQty: Math.max(1, product.wholesaleMinQty),
-      key: groupKey(product.id, variant?.size ?? null, retailUnitPrice),
+      key: groupKey(product.groupId ?? null, product.id, variant?.size ?? null, retailUnitPrice),
     });
   }
 
@@ -172,6 +182,10 @@ export async function priceCart(
       tier: qualifies ? "WHOLESALE" : "RETAIL",
       wholesaleMinQty: d.wholesaleUnitPrice == null ? null : d.wholesaleMinQty,
       groupQty,
+      unitsToWholesale:
+        d.wholesaleUnitPrice == null || qualifies
+          ? 0
+          : Math.max(0, d.wholesaleMinQty - groupQty),
       retailUnitPrice: d.retailUnitPrice,
       wholesaleSaving: Math.max(0, (d.retailUnitPrice - unitPrice) * d.quantity),
     };

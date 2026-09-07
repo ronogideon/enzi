@@ -73,6 +73,11 @@ export interface ProductVariant {
 
 export interface Product {
   hasVariants?: boolean;
+  groupId?: string | null;
+  colourName?: string | null;
+  colourHex?: string | null;
+  swatchMediaId?: string | null;
+  groupPosition?: number;
   variants?: ProductVariant[];
   badgeText?: string | null;
   badgeActive?: boolean;

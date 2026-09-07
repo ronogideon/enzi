@@ -10,10 +10,11 @@ import { Icon } from "@/components/Icons";
 import { ImageUploader } from "@/components/ImageUploader";
 import {
   VariantEditor,
-  toDraft,
-  draftsToPayload,
-  type DraftVariant,
+  sizesFromVariants,
+  sizesToPayload,
+  type SizeRow,
 } from "@/components/VariantEditor";
+import { ColourGroupPanel } from "@/components/ColourGroupPanel";
 
 type Filter = "all" | "active" | "hidden" | "lowstock";
 
@@ -243,14 +244,29 @@ export default function Products() {
                         )}
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-white">{p.name}</p>
+                        <p className="truncate font-medium text-white">
+                          {p.name}
+                          {p.colourName && (
+                            <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-ink-line px-2 py-0.5 text-[10px] font-normal text-muted">
+                              {p.colourHex && (
+                                <span
+                                  className="h-2 w-2 rounded-full border border-white/20"
+                                  style={{ backgroundColor: p.colourHex }}
+                                  aria-hidden
+                                />
+                              )}
+                              {p.colourName}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-faint">
                           {p.images?.length ?? 0} photo{p.images?.length === 1 ? "" : "s"}
                           {p.retailMinQty > 1 && ` · min ${p.retailMinQty}`}
                           {(p.variants?.length ?? 0) > 0 &&
-                            ` · ${p.variants!.length} option${
+                            ` · ${p.variants!.length} size${
                               p.variants!.length === 1 ? "" : "s"
                             }`}
+                          {p.groupId && " · colour group"}
                         </p>
                       </div>
                     </div>
@@ -427,9 +443,10 @@ function ProductModal({
     active: product?.active ?? true,
   });
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
-  const [variants, setVariants] = useState<DraftVariant[]>(
-    () => (product?.variants ?? []).map(toDraft)
+  const [sizes, setSizes] = useState<SizeRow[]>(
+    () => sizesFromVariants(product?.variants ?? [])
   );
+  const [colourName, setColourName] = useState(product?.colourName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -500,7 +517,7 @@ function ProductModal({
       // Variants are a separate call: the endpoint replaces the whole set and
       // diffs by id, which keeps order history intact for options that already
       // existed.
-      await api.saveVariants(saved.id, draftsToPayload(variants));
+      await api.saveVariants(saved.id, sizesToPayload(sizes, colourName));
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -543,11 +560,23 @@ function ProductModal({
           <ImageUploader images={images} onChange={setImages} />
         </div>
 
+        {product && (
+          <div className="sm:col-span-2 border-t border-ink-line pt-5">
+            <ColourGroupPanel
+              product={product}
+              colourName={colourName}
+              onColourNameChange={setColourName}
+              onCreated={onSaved}
+            />
+          </div>
+        )}
+
         <div className="sm:col-span-2 border-t border-ink-line pt-5">
           <VariantEditor
-            variants={variants}
-            onChange={setVariants}
+            sizes={sizes}
+            onChange={setSizes}
             defaultRetail={form.retailPrice}
+            defaultWholesale={form.wholesalePrice}
           />
         </div>
 
@@ -665,11 +694,11 @@ function ProductModal({
             type="number"
             value={form.stockQty}
             onChange={(e) => set("stockQty", e.target.value)}
-            disabled={variants.length > 0}
+            disabled={sizes.length > 0}
           />
-          {variants.length > 0 && (
+          {sizes.length > 0 && (
             <p className="mt-1 text-xs text-faint">
-              Ignored — stock is tracked per option below.
+              Ignored — stock is tracked per size below.
             </p>
           )}
         </div>

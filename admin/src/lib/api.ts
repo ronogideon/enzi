@@ -271,6 +271,18 @@ export const api = {
     req<{ ok: boolean }>(`/products/${id}?hard=true`, { method: "DELETE" }),
   restoreProduct: (id: string) => req<Product>(`/products/${id}/restore`, { method: "POST" }),
 
+  /** Create sibling listings, one per colour, copying all but the images. */
+  createColourListings: (
+    productId: string,
+    colours: { name: string; colourHex?: string | null; swatchMediaId?: string | null }[]
+  ) =>
+    req<{ groupId: string; created: string[]; products: Product[] }>(
+      `/products/${productId}/colours`,
+      { method: "POST", body: { colours } }
+    ),
+  ungroupProduct: (productId: string) =>
+    req<Product>(`/products/${productId}/ungroup`, { method: "POST" }),
+
   /** Replace a product's whole variant set. */
   saveVariants: (productId: string, variants: unknown[]) =>
     req<Product>(`/products/${productId}/variants`, { method: "PUT", body: { variants } }),

@@ -1,198 +1,125 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { kesToCents, centsToKes } from "@/lib/money";
 import type { ProductVariant } from "@/lib/types";
 import { Icon } from "@/components/Icons";
 import { Toggle } from "@/components/ui";
 
-export interface DraftVariant {
+/**
+ * Sizes carry the price; each size row also carries its stock.
+ *
+ * Every colour of a given size sells for the same money, so asking the shop to
+ * retype the price against each colour was busywork that also invited typos —
+ * and a colour priced differently by accident would quietly break wholesale
+ * grouping, which keys on size and price together.
+ *
+ * Colours are separate listings (see the Colours panel on the product form), so
+ * this editor only deals with the sizes of the listing in front of you.
+ */
+
+export interface SizeRow {
   id?: string;
-  colour: string;
-  size: string;
-  colourHex: string;
-  swatchMediaId: string | null;
-  sku: string;
-  retailPrice: string; // KES, as typed
+  name: string;
+  retailPrice: string; // KES as typed
   wholesalePrice: string;
   stockQty: string;
   active: boolean;
 }
 
-export function toDraft(v: ProductVariant): DraftVariant {
-  return {
+export const emptySizes: SizeRow[] = [];
+
+export function sizesFromVariants(variants: ProductVariant[]): SizeRow[] {
+  return variants.map((v) => ({
     id: v.id,
-    colour: v.colour ?? "",
-    size: v.size ?? "",
-    colourHex: v.colourHex ?? "",
-    swatchMediaId: v.swatchMediaId ?? null,
-    sku: v.sku ?? "",
+    name: v.size ?? "",
     retailPrice: String(centsToKes(v.retailPrice)),
     wholesalePrice: v.wholesalePrice != null ? String(centsToKes(v.wholesalePrice)) : "",
     stockQty: String(v.stockQty ?? 0),
     active: v.active ?? true,
-  };
+  }));
 }
 
-/**
- * Variant editor.
- *
- * Deliberately a flat list rather than a colour × size matrix: the size range
- * genuinely differs by colour here, so a grid would force you to create
- * combinations you don't stock and then remember to disable them. A list of
- * real rows means what's on screen is exactly what's buyable.
- *
- * The generator below covers the common case where the sizes ARE the same
- * across colours — type the colours and sizes once and it fills the rows in.
- */
+export function sizesToPayload(sizes: SizeRow[], colourName?: string | null) {
+  return sizes.map((s, i) => ({
+    id: s.id,
+    // The colour is the listing's, stamped onto each size so order lines read
+    // "White / 8*10cm" without another lookup.
+    colour: colourName?.trim() || null,
+    size: s.name.trim() || null,
+    retailPrice: kesToCents(Number(s.retailPrice) || 0),
+    wholesalePrice: s.wholesalePrice ? kesToCents(Number(s.wholesalePrice)) : null,
+    stockQty: Number(s.stockQty) || 0,
+    active: s.active,
+    position: i,
+  }));
+}
+
 export function VariantEditor({
-  variants,
+  sizes,
   onChange,
   defaultRetail,
+  defaultWholesale,
 }: {
-  variants: DraftVariant[];
-  onChange: (next: DraftVariant[]) => void;
+  sizes: SizeRow[];
+  onChange: (next: SizeRow[]) => void;
   defaultRetail: string;
+  defaultWholesale: string;
 }) {
-  const [bulkColours, setBulkColours] = useState("");
-  const [bulkSizes, setBulkSizes] = useState("");
-  const [showGenerator, setShowGenerator] = useState(false);
+  const [newSize, setNewSize] = useState("");
 
-  const set = (i: number, patch: Partial<DraftVariant>) =>
-    onChange(variants.map((v, idx) => (idx === i ? { ...v, ...patch } : v)));
+  const set = (i: number, patch: Partial<SizeRow>) =>
+    onChange(sizes.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
 
-  const addRow = () =>
+  function addSize(name?: string) {
+    const value = (name ?? newSize).trim();
+    if (!value) return;
+    if (sizes.some((s) => s.name.toLowerCase() === value.toLowerCase())) return;
     onChange([
-      ...variants,
+      ...sizes,
       {
-        colour: "",
-        size: "",
-        colourHex: "",
-        swatchMediaId: null,
-        sku: "",
-        retailPrice: defaultRetail || "",
-        wholesalePrice: "",
+        name: value,
+        retailPrice: defaultRetail,
+        wholesalePrice: defaultWholesale,
         stockQty: "0",
         active: true,
       },
     ]);
+    setNewSize("");
+  }
 
-  function generate() {
-    const colours = bulkColours.split(",").map((c) => c.trim()).filter(Boolean);
-    const sizes = bulkSizes.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!colours.length && !sizes.length) return;
+  const totalStock = useMemo(
+    () => sizes.reduce((n, s) => n + (Number(s.stockQty) || 0), 0),
+    [sizes]
+  );
 
-    const combos: DraftVariant[] = [];
-    const colourList = colours.length ? colours : [""];
-    const sizeList = sizes.length ? sizes : [""];
-
-    for (const colour of colourList) {
-      for (const size of sizeList) {
-        // Never overwrite a row that already exists — the generator only fills
-        // gaps, so running it again after adding a colour is safe.
-        const exists = variants.some(
-          (v) =>
-            v.colour.toLowerCase() === colour.toLowerCase() &&
-            v.size.toLowerCase() === size.toLowerCase()
-        );
-        if (exists) continue;
-        combos.push({
-          colour,
-          size,
-          colourHex: "",
-          swatchMediaId: null,
-          sku: "",
-          retailPrice: defaultRetail || "",
-          wholesalePrice: "",
-          stockQty: "0",
-          active: true,
-        });
-      }
+  const duplicates = useMemo(() => {
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    for (const s of sizes) {
+      const k = s.name.trim().toLowerCase();
+      if (seen.has(k)) dupes.add(k);
+      seen.add(k);
     }
-    onChange([...variants, ...combos]);
-    setBulkColours("");
-    setBulkSizes("");
-    setShowGenerator(false);
-  }
-
-  const duplicates = new Set<string>();
-  const seen = new Set<string>();
-  for (const v of variants) {
-    const key = `${v.colour.toLowerCase()}::${v.size.toLowerCase()}`;
-    if (seen.has(key)) duplicates.add(key);
-    seen.add(key);
-  }
+    return dupes;
+  }, [sizes]);
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="label mb-0">Options</p>
-          <p className="text-xs text-faint">
-            Each colour and size combination you actually stock, with its own price and
-            stock level.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn-ghost text-xs"
-            onClick={() => setShowGenerator((v) => !v)}
-          >
-            Generate
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={addRow}>
-            <Icon.Plus className="h-3.5 w-3.5" />
-            Add option
-          </button>
-        </div>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="label mb-0">Sizes &amp; pricing</p>
+        {sizes.length > 0 && (
+          <span className="text-xs text-faint">
+            {sizes.length} size{sizes.length === 1 ? "" : "s"} · {totalStock} in stock
+          </span>
+        )}
       </div>
+      <p className="mb-4 text-xs text-faint">
+        One price per size — every colour of that size sells for the same amount. Stock is
+        counted per size on this listing.
+      </p>
 
-      {showGenerator && (
-        <div className="mb-4 rounded-xl border border-indigo/40 bg-ink-800/60 p-4">
-          <p className="text-xs text-muted">
-            For when every colour comes in the same sizes. Separate with commas — existing
-            rows are left alone.
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="label">Colours</label>
-              <input
-                className="field"
-                value={bulkColours}
-                onChange={(e) => setBulkColours(e.target.value)}
-                placeholder="White, Chocolate, Blue"
-              />
-            </div>
-            <div>
-              <label className="label">Sizes</label>
-              <input
-                className="field"
-                value={bulkSizes}
-                onChange={(e) => setBulkSizes(e.target.value)}
-                placeholder="8*10cm, 10*15cm"
-              />
-            </div>
-          </div>
-          <button type="button" className="btn-primary mt-3 text-xs" onClick={generate}>
-            Create the combinations
-          </button>
-        </div>
-      )}
-
-      {variants.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-ink-line p-6 text-center">
-          <p className="text-sm text-muted">
-            No options yet — this product sells as a single item.
-          </p>
-          <p className="mt-1 text-xs text-faint">
-            Add options if it comes in different colours or sizes.
-          </p>
-        </div>
-      ) : (
+      {sizes.length > 0 && (
         <div className="space-y-2">
-          {/* Column headers, desktop only — the cards carry their own labels on
-              mobile where a table header would be off-screen. */}
-          <div className="hidden gap-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-faint sm:grid sm:grid-cols-[1.2fr_1.2fr_1fr_1fr_0.8fr_auto]">
-            <span>Colour</span>
+          <div className="hidden gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-faint sm:grid sm:grid-cols-[1.4fr_1fr_1fr_0.8fr_auto]">
             <span>Size</span>
             <span>Retail (Ksh)</span>
             <span>Wholesale (Ksh)</span>
@@ -200,31 +127,21 @@ export function VariantEditor({
             <span />
           </div>
 
-          {variants.map((v, i) => {
-            const key = `${v.colour.toLowerCase()}::${v.size.toLowerCase()}`;
-            const dupe = duplicates.has(key);
+          {sizes.map((s, i) => {
+            const dupe = duplicates.has(s.name.trim().toLowerCase());
             return (
               <div
                 key={i}
-                className={`grid gap-2 rounded-xl border p-3 sm:grid-cols-[1.2fr_1.2fr_1fr_1fr_0.8fr_auto] sm:items-center ${
+                className={`grid gap-2 rounded-xl border p-3 sm:grid-cols-[1.4fr_1fr_1fr_0.8fr_auto] sm:items-center sm:border-0 sm:p-1 ${
                   dupe ? "border-danger/50" : "border-ink-line"
-                } ${v.active ? "" : "opacity-50"}`}
+                } ${s.active ? "" : "opacity-50"}`}
               >
-                <div>
-                  <label className="label sm:hidden">Colour</label>
-                  <input
-                    className="field"
-                    value={v.colour}
-                    onChange={(e) => set(i, { colour: e.target.value })}
-                    placeholder="White"
-                  />
-                </div>
                 <div>
                   <label className="label sm:hidden">Size</label>
                   <input
                     className="field"
-                    value={v.size}
-                    onChange={(e) => set(i, { size: e.target.value })}
+                    value={s.name}
+                    onChange={(e) => set(i, { name: e.target.value })}
                     placeholder="8*10cm"
                   />
                 </div>
@@ -234,7 +151,7 @@ export function VariantEditor({
                     className="field"
                     type="number"
                     min="0"
-                    value={v.retailPrice}
+                    value={s.retailPrice}
                     onChange={(e) => set(i, { retailPrice: e.target.value })}
                   />
                 </div>
@@ -244,7 +161,7 @@ export function VariantEditor({
                     className="field"
                     type="number"
                     min="0"
-                    value={v.wholesalePrice}
+                    value={s.wholesalePrice}
                     onChange={(e) => set(i, { wholesalePrice: e.target.value })}
                     placeholder="—"
                   />
@@ -254,30 +171,28 @@ export function VariantEditor({
                   <input
                     className="field"
                     type="number"
-                    value={v.stockQty}
+                    value={s.stockQty}
                     onChange={(e) => set(i, { stockQty: e.target.value })}
                   />
                 </div>
-
                 <div className="flex items-center justify-end gap-2">
                   <Toggle
-                    checked={v.active}
-                    onChange={(on) => set(i, { active: on })}
-                    label="Available"
+                    checked={s.active}
+                    onChange={(v) => set(i, { active: v })}
+                    label={`${s.name} available`}
                   />
                   <button
                     type="button"
-                    onClick={() => onChange(variants.filter((_, idx) => idx !== i))}
+                    onClick={() => onChange(sizes.filter((_, idx) => idx !== i))}
                     className="text-muted transition-colors hover:text-danger"
-                    aria-label="Remove option"
+                    aria-label={`Remove size ${s.name}`}
                   >
                     <Icon.Trash className="h-4 w-4" />
                   </button>
                 </div>
-
                 {dupe && (
-                  <p className="text-xs text-danger sm:col-span-6">
-                    Duplicate combination — colour and size together must be unique.
+                  <p className="text-xs text-danger sm:col-span-5">
+                    Duplicate size — each must be unique.
                   </p>
                 )}
               </div>
@@ -286,30 +201,30 @@ export function VariantEditor({
         </div>
       )}
 
-      {variants.length > 0 && (
+      <div className="mt-3 flex gap-2">
+        <input
+          className="field"
+          value={newSize}
+          onChange={(e) => setNewSize(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addSize();
+            }
+          }}
+          placeholder="Add a size — 8*10cm"
+        />
+        <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => addSize()}>
+          <Icon.Plus className="h-3.5 w-3.5" />
+          Add size
+        </button>
+      </div>
+
+      {sizes.length === 0 && (
         <p className="mt-3 text-xs text-faint">
-          Stock is tracked per option. A sold-out colour or size is hidden from customers
-          automatically; the exact numbers are never shown on the shop.
+          No sizes — this listing sells as a single item at the price above.
         </p>
       )}
     </div>
   );
 }
-
-/** Turn drafts into the payload the API expects. */
-export function draftsToPayload(variants: DraftVariant[]) {
-  return variants.map((v, i) => ({
-    id: v.id,
-    colour: v.colour.trim() || null,
-    size: v.size.trim() || null,
-    colourHex: v.colourHex.trim() || null,
-    swatchMediaId: v.swatchMediaId,
-    sku: v.sku.trim() || null,
-    retailPrice: kesToCents(Number(v.retailPrice) || 0),
-    wholesalePrice: v.wholesalePrice ? kesToCents(Number(v.wholesalePrice)) : null,
-    stockQty: Number(v.stockQty) || 0,
-    active: v.active,
-    position: i,
-  }));
-}
-

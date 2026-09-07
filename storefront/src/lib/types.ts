@@ -27,8 +27,24 @@ export interface ProductVariant {
   inStock: boolean;
 }
 
+/** A sibling colour listing within the same product group. */
+export interface ColourOption {
+  id: string;
+  slug: string;
+  colourName?: string | null;
+  colourHex?: string | null;
+  swatchMediaId?: string | null;
+  groupPosition?: number;
+  images: ProductImage[];
+  variants: ProductVariant[];
+  inStock: boolean;
+}
+
 export interface Product {
   hasVariants?: boolean;
+  groupId?: string | null;
+  colourName?: string | null;
+  colourOptions?: ColourOption[];
   variants?: ProductVariant[];
   inStock?: boolean;
   badgeText?: string | null;
@@ -72,6 +88,7 @@ export interface DeliveryMethod {
 }
 export interface PricedLine {
   productId: string;
+  unitsToWholesale?: number;
   variantId?: string | null;
   variantLabel?: string | null;
   groupQty?: number;

@@ -152,10 +152,23 @@ model Product {
   featured  Boolean @default(false)
   active    Boolean @default(true)
 
-  /// True once the product carries colour/size variants. Kept explicit rather
-  /// than inferred from variants.length so a product can be set up as a
-  /// variant product before its first variant is added.
+  /// True once the product carries size variants. Kept explicit rather than
+  /// inferred from variants.length so a product can be set up as a variant
+  /// product before its first variant is added.
   hasVariants Boolean @default(false)
+
+  /// Colour variations are separate listings that know they're related.
+  ///
+  /// Each colour is its own Product — its own page, its own URL, its own photos
+  /// and its own SEO — but siblings share a groupId so the storefront can offer
+  /// the colour switcher and so wholesale quantities combine across them.
+  groupId       String?
+  /// The colour THIS listing represents, e.g. "White".
+  colourName    String?
+  colourHex     String?
+  swatchMediaId String?
+  /// Order of the colour chips within a group.
+  groupPosition Int     @default(0)
 
   /// Optional urgency badge on the shop listing — the shop writes the text
   /// ("Few pieces remaining", "Selling fast"). Exact stock numbers are never
@@ -175,6 +188,7 @@ model Product {
 
   @@index([categoryId])
   @@index([featured])
+  @@index([groupId])
 }
 
 /// A specific buyable combination — "White / 8*10cm".

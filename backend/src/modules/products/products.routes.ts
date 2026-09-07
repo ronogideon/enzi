@@ -51,6 +51,41 @@ const imageSchema = z.object({
  * inventory, and it means the urgency badge is the shop's own words rather than
  * a number that might contradict them.
  */
+/**
+ * Sibling colour listings, shaped for the colour switcher. Each is a real
+ * product with its own page, so the switcher can either swap in place or
+ * navigate — and each carries its own availability.
+ */
+function publicSiblings(siblings: any[]) {
+  return siblings.map((s: any) => ({
+    id: s.id,
+    slug: s.slug,
+    colourName: s.colourName,
+    colourHex: s.colourHex,
+    swatchMediaId: s.swatchMediaId,
+    groupPosition: s.groupPosition,
+    images: (s.images ?? []).map((im: any) => ({
+      id: im.id,
+      url: im.url,
+      alt: im.alt,
+    })),
+    variants: (s.variants ?? [])
+      .filter((v: any) => v.active)
+      .map((v: any) => ({
+        id: v.id,
+        colour: v.colour,
+        size: v.size,
+        retailPrice: v.retailPrice,
+        wholesalePrice: v.wholesalePrice,
+        position: v.position,
+        inStock: v.stockQty > 0,
+      })),
+    inStock: s.hasVariants
+      ? (s.variants ?? []).some((v: any) => v.active && v.stockQty > 0)
+      : s.stockQty > 0,
+  }));
+}
+
 function publicProduct(p: any) {
   const variants = (p.variants ?? []).map((v: any) => ({
     id: v.id,
@@ -69,11 +104,12 @@ function publicProduct(p: any) {
     ? variants.some((v: any) => v.inStock)
     : p.stockQty > 0;
 
-  const { stockQty, ...rest } = p;
+  const { stockQty, siblings, ...rest } = p;
   return {
     ...rest,
     variants,
     inStock,
+    colourOptions: siblings ? publicSiblings(siblings) : undefined,
     effectivePrice: effectiveUnitPrice(p, "RETAIL", p.promotions ?? []),
     effectiveWholesalePrice:
       p.wholesalePrice == null ? null : effectiveUnitPrice(p, "WHOLESALE", p.promotions ?? []),
@@ -133,7 +169,7 @@ productsRouter.get(
         promotions: true,
         _count: { select: { orderItems: true } },
       },
-      orderBy: [{ active: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ active: "desc" }, { groupId: "asc" }, { groupPosition: "asc" }, { createdAt: "desc" }],
     });
     res.json(products);
   })
@@ -167,7 +203,22 @@ productsRouter.get(
       },
     });
     if (!product || !product.active) throw new HttpError(404, "Product not found");
-    res.json(publicProduct(product));
+
+    // Colour siblings, if this listing belongs to a group. Fetched here rather
+    // than through a Prisma self-relation so a product with no siblings costs
+    // no extra query.
+    const siblings = product.groupId
+      ? await prisma.product.findMany({
+          where: { groupId: product.groupId, active: true },
+          include: {
+            images: { orderBy: { position: "asc" } },
+            variants: { where: { active: true }, orderBy: { position: "asc" } },
+          },
+          orderBy: [{ groupPosition: "asc" }, { createdAt: "asc" }],
+        })
+      : [];
+
+    res.json(publicProduct({ ...product, siblings }));
   })
 );
 
@@ -335,6 +386,153 @@ productsRouter.delete(
     });
 
     res.json({ ok: true, deleted: true });
+  })
+);
+
+/**
+ * Turn a product into a colour group, creating one sibling listing per colour.
+ *
+ * Everything is copied from the original — description, category, prices, min
+ * quantities, size variants, badge — EXCEPT the images, because the whole point
+ * of separate listings is that each colour shows its own photos. The shop
+ * uploads those per listing afterwards.
+ *
+ * The original becomes the first colour rather than a hidden parent, so there's
+ * no phantom product in the catalogue that nobody can buy.
+ */
+productsRouter.post(
+  "/:id/colours",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { colours } = z
+      .object({
+        colours: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(60),
+              colourHex: z.string().max(9).optional().nullable(),
+              swatchMediaId: z.string().optional().nullable(),
+            })
+          )
+          .min(1)
+          .max(30),
+      })
+      .parse(req.body);
+
+    const source = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      include: { variants: true },
+    });
+    if (!source) throw new HttpError(404, "Product not found");
+
+    const groupId = source.groupId ?? source.id;
+
+    // Which colours already have a listing in this group — so running this
+    // again after adding a colour only creates the new one.
+    const existing = await prisma.product.findMany({
+      where: { groupId },
+      select: { colourName: true },
+    });
+    const taken = new Set(
+      existing.map((e) => (e.colourName ?? "").toLowerCase()).filter(Boolean)
+    );
+
+    const created: string[] = [];
+
+    await prisma.$transaction(async (tx) => {
+      // The original joins the group as its first colour.
+      const first = colours[0];
+      await tx.product.update({
+        where: { id: source.id },
+        data: {
+          groupId,
+          colourName: source.colourName ?? first.name.trim(),
+          colourHex: source.colourHex ?? first.colourHex ?? null,
+          swatchMediaId: source.swatchMediaId ?? first.swatchMediaId ?? null,
+          groupPosition: source.groupPosition ?? 0,
+        },
+      });
+      if (!source.colourName) taken.add(first.name.trim().toLowerCase());
+
+      for (const [i, colour] of colours.entries()) {
+        const name = colour.name.trim();
+        if (taken.has(name.toLowerCase())) continue;
+
+        const listingName = `${stripColour(source.name)} — ${name}`;
+        const sibling = await tx.product.create({
+          data: {
+            name: listingName,
+            slug: await uniqueSlug(listingName),
+            description: source.description,
+            categoryId: source.categoryId,
+            retailPrice: source.retailPrice,
+            wholesalePrice: source.wholesalePrice,
+            retailMinQty: source.retailMinQty,
+            wholesaleMinQty: source.wholesaleMinQty,
+            featured: false,
+            // Starts hidden: a listing with no photos of its own shouldn't be
+            // in the shop until someone has uploaded them.
+            active: false,
+            hasVariants: source.hasVariants,
+            badgeText: source.badgeText,
+            badgeActive: source.badgeActive,
+            groupId,
+            colourName: name,
+            colourHex: colour.colourHex ?? null,
+            swatchMediaId: colour.swatchMediaId ?? null,
+            groupPosition: i,
+            stockQty: 0,
+          },
+        });
+
+        // Copy the size variants so pricing is identical from the start; stock
+        // begins at zero because it hasn't been counted for this colour yet.
+        for (const v of source.variants) {
+          await tx.productVariant.create({
+            data: {
+              productId: sibling.id,
+              colour: name,
+              size: v.size,
+              retailPrice: v.retailPrice,
+              wholesalePrice: v.wholesalePrice,
+              stockQty: 0,
+              active: v.active,
+              position: v.position,
+              slug: null,
+            },
+          });
+        }
+
+        created.push(listingName);
+      }
+    });
+
+    const group = await prisma.product.findMany({
+      where: { groupId },
+      include: { images: { orderBy: { position: "asc" } }, variants: true, category: true },
+      orderBy: [{ groupPosition: "asc" }, { createdAt: "asc" }],
+    });
+
+    res.status(201).json({ groupId, created, products: group });
+  })
+);
+
+/** Strip a trailing "— Colour" so regenerating doesn't stack suffixes. */
+function stripColour(name: string) {
+  return name.split(" — ")[0].trim();
+}
+
+/** Detach a listing from its colour group. */
+productsRouter.post(
+  "/:id/ungroup",
+  requireStaff,
+  wrap(async (req, res) => {
+    res.json(
+      await prisma.product.update({
+        where: { id: req.params.id },
+        data: { groupId: null, colourName: null, colourHex: null, swatchMediaId: null },
+      })
+    );
   })
 );
 
