@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { api, mediaUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatKes, kesToCents, centsToKes } from "@/lib/money";
@@ -28,6 +28,15 @@ export default function Products() {
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Which listings are showing their size breakdown.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   const visible = useMemo(() => {
     const rows = products.data ?? [];
@@ -160,18 +169,43 @@ export default function Products() {
                     {p.images?.length === 1 ? "" : "s"}
                   </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-cloud">{formatKes(p.retailPrice)}</span>
-                    {p.wholesalePrice ? (
+                    <span className="text-cloud">{priceRange(p, "retail")}</span>
+                    {priceRange(p, "wholesale") !== "—" && (
                       <span className="text-xs text-faint">
-                        wholesale {formatKes(p.wholesalePrice)}
+                        wholesale {priceRange(p, "wholesale")}
                       </span>
-                    ) : null}
-                    <Badge tone={p.stockQty <= 0 ? "danger" : p.stockQty <= 10 ? "gold" : "muted"}>
-                      {p.stockQty} in stock
-                    </Badge>
+                    )}
+                    {(() => {
+                      const total = totalStock(p);
+                      return (
+                        <Badge tone={total <= 0 ? "danger" : total <= 10 ? "gold" : "muted"}>
+                          {total} in stock
+                        </Badge>
+                      );
+                    })()}
                   </div>
+                  {(p.variants?.length ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(p.id)}
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted"
+                    >
+                      <Icon.ChevronDown
+                        className={`h-3 w-3 transition-transform ${
+                          expanded.has(p.id) ? "" : "-rotate-90"
+                        }`}
+                      />
+                      {p.variants!.length} size{p.variants!.length === 1 ? "" : "s"}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {expanded.has(p.id) && (
+                <div className="mt-3 border-t border-ink-line pt-3">
+                  <SizeBreakdown product={p} />
+                </div>
+              )}
 
               <div className="mt-3 border-t border-ink-line pt-3">
                 <p className="mb-1.5 text-[10px] uppercase tracking-wider text-faint">
@@ -192,12 +226,20 @@ export default function Products() {
               </div>
 
               <div className="mt-3 flex gap-2">
-                <button className="btn-ghost flex-1 text-xs" onClick={() => setEditing(p)}>Edit</button>
-                <button className="btn-ghost text-xs" onClick={() => run(p.id, () => api.duplicateProduct(p.id))}>
-                  Duplicate
+                <button className="btn-ghost flex-1 text-xs" onClick={() => setEditing(p)}>
+                  <Icon.Edit className="h-3.5 w-3.5" />
+                  Edit
                 </button>
+                <IconAction
+                  label="Duplicate"
+                  onClick={() => run(p.id, () => api.duplicateProduct(p.id))}
+                >
+                  <Icon.Copy className="h-4 w-4" />
+                </IconAction>
                 {can(["SUPERADMIN", "ADMIN"]) && (
-                  <button className="btn-danger text-xs" onClick={() => remove(p)}>Delete</button>
+                  <IconAction label="Delete" danger onClick={() => remove(p)}>
+                    <Icon.Trash className="h-4 w-4" />
+                  </IconAction>
                 )}
               </div>
             </div>
@@ -221,9 +263,9 @@ export default function Products() {
             </thead>
             <tbody>
               {visible.map((p) => (
+                <Fragment key={p.id}>
                 <tr
-                  key={p.id}
-                  className={`border-b border-ink-line/60 last:border-0 ${
+                  className={`border-b border-ink-line/60 ${
                     busyId === p.id ? "opacity-50" : ""
                   }`}
                 >
@@ -244,7 +286,18 @@ export default function Products() {
                         )}
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-white">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(p.id)}
+                          className="flex w-full items-center gap-1.5 text-left"
+                          aria-expanded={expanded.has(p.id)}
+                        >
+                          <Icon.ChevronDown
+                            className={`h-3.5 w-3.5 shrink-0 text-faint transition-transform ${
+                              expanded.has(p.id) ? "" : "-rotate-90"
+                            }`}
+                          />
+                          <span className="truncate font-medium text-white">
                           {p.name}
                           {p.colourName && (
                             <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-ink-line px-2 py-0.5 text-[10px] font-normal text-muted">
@@ -258,8 +311,9 @@ export default function Products() {
                               {p.colourName}
                             </span>
                           )}
-                        </p>
-                        <p className="text-xs text-faint">
+                          </span>
+                        </button>
+                        <p className="pl-5 text-xs text-faint">
                           {p.images?.length ?? 0} photo{p.images?.length === 1 ? "" : "s"}
                           {p.retailMinQty > 1 && ` · min ${p.retailMinQty}`}
                           {(p.variants?.length ?? 0) > 0 &&
@@ -272,35 +326,27 @@ export default function Products() {
                     </div>
                   </td>
                   <td className="td text-muted">{p.category?.name ?? "—"}</td>
-                  <td className="td text-right">{formatKes(p.retailPrice)}</td>
-                  <td className="td text-right text-muted">
-                    {p.wholesalePrice ? formatKes(p.wholesalePrice) : "—"}
+                  <td className="td whitespace-nowrap text-right">
+                    {priceRange(p, "retail")}
+                  </td>
+                  <td className="td whitespace-nowrap text-right text-muted">
+                    {priceRange(p, "wholesale")}
                   </td>
                   <td className="td text-right">
-                    {(p.variants?.length ?? 0) > 0 ? (
-                      (() => {
-                        // Total across options, so the list still answers "how
-                        // much do I have?" at a glance.
-                        const total = p.variants!.reduce((n, v) => n + (v.stockQty ?? 0), 0);
-                        const sold = p.variants!.filter((v) => (v.stockQty ?? 0) <= 0).length;
-                        return (
-                          <>
-                            <Badge tone={total <= 0 ? "danger" : total <= 10 ? "gold" : "muted"}>
-                              {total}
-                            </Badge>
-                            {sold > 0 && (
-                              <div className="mt-0.5 text-[10px] text-faint">
-                                {sold} option{sold === 1 ? "" : "s"} out
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()
-                    ) : (
-                      <Badge tone={p.stockQty <= 0 ? "danger" : p.stockQty <= 10 ? "gold" : "muted"}>
-                        {p.stockQty}
-                      </Badge>
-                    )}
+                    {(() => {
+                      const total = totalStock(p);
+                      const sold = (p.variants ?? []).filter((v) => (v.stockQty ?? 0) <= 0).length;
+                      return (
+                        <>
+                          <Badge tone={total <= 0 ? "danger" : total <= 10 ? "gold" : "muted"}>
+                            {total}
+                          </Badge>
+                          {sold > 0 && (
+                            <div className="mt-0.5 text-[10px] text-faint">{sold} out</div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td className="td">
                     <BadgeControl product={p} onSaved={products.reload} />
@@ -319,24 +365,35 @@ export default function Products() {
                     </div>
                   </td>
                   <td className="td">
-                    <div className="flex justify-end gap-3 text-sm">
-                      <button className="text-indigo hover:underline" onClick={() => setEditing(p)}>
-                        Edit
-                      </button>
-                      <button
-                        className="text-muted hover:text-cloud"
+                    {/* Icons rather than three words each — the row was running
+                        out of horizontal space with everything else on it. */}
+                    <div className="flex justify-end gap-1">
+                      <IconAction label="Edit" onClick={() => setEditing(p)}>
+                        <Icon.Edit className="h-4 w-4" />
+                      </IconAction>
+                      <IconAction
+                        label="Duplicate"
                         onClick={() => run(p.id, () => api.duplicateProduct(p.id))}
                       >
-                        Duplicate
-                      </button>
+                        <Icon.Copy className="h-4 w-4" />
+                      </IconAction>
                       {can(["SUPERADMIN", "ADMIN"]) && (
-                        <button className="text-muted hover:text-danger" onClick={() => remove(p)}>
-                          Delete
-                        </button>
+                        <IconAction label="Delete" danger onClick={() => remove(p)}>
+                          <Icon.Trash className="h-4 w-4" />
+                        </IconAction>
                       )}
                     </div>
                   </td>
                 </tr>
+
+                {expanded.has(p.id) && (
+                  <tr className="border-b border-ink-line/60 bg-ink-800/30">
+                    <td colSpan={9} className="px-4 py-3">
+                      <SizeBreakdown product={p} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -365,6 +422,106 @@ export default function Products() {
  * published, so the badge can't be contradicted by a number sitting beside it —
  * and a genuinely sold-out product always shows out of stock regardless.
  */
+/** Icon-only action with an accessible label and a tooltip on hover. */
+function IconAction({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-ink-hover active:scale-95 ${
+        danger ? "hover:text-danger" : "hover:text-cloud"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The per-size breakdown revealed by clicking a product name. Answers "what do
+ * I actually have of each size?" without opening the editor.
+ */
+function SizeBreakdown({ product }: { product: Product }) {
+  const sizes = (product.variants ?? []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  if (!sizes.length) {
+    return (
+      <p className="pl-5 text-xs text-faint">
+        No sizes on this listing — it sells as a single item, {product.stockQty} in stock.
+      </p>
+    );
+  }
+
+  return (
+    <div className="pl-5">
+      <div className="grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))]">
+        {sizes.map((v) => {
+          const out = (v.stockQty ?? 0) <= 0;
+          return (
+            <div
+              key={v.id}
+              className={`flex items-center justify-between gap-3 rounded-lg border border-ink-line px-3 py-2 ${
+                v.active ? "" : "opacity-50"
+              }`}
+            >
+              <span className="min-w-0 truncate text-cloud">
+                {v.size || "Standard"}
+                {!v.active && <span className="ml-1.5 text-faint">(off)</span>}
+              </span>
+              <span className="shrink-0 text-muted">
+                {formatKes(v.retailPrice)}
+                {v.wholesalePrice != null && (
+                  <span className="text-faint"> / {formatKes(v.wholesalePrice)}</span>
+                )}
+              </span>
+              <Badge tone={out ? "danger" : (v.stockQty ?? 0) <= 10 ? "gold" : "muted"}>
+                {v.stockQty ?? 0}
+              </Badge>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[10px] text-faint">
+        Retail / wholesale per size · stock on the right
+      </p>
+    </div>
+  );
+}
+
+/** Price shown as a range across sizes: "Ksh 35 – 45". */
+function priceRange(p: Product, pick: "retail" | "wholesale") {
+  const values = (p.variants ?? [])
+    .filter((v) => v.active)
+    .map((v) => (pick === "retail" ? v.retailPrice : v.wholesalePrice))
+    .filter((n): n is number => n != null);
+
+  if (!values.length) {
+    const single = pick === "retail" ? p.retailPrice : p.wholesalePrice;
+    return single != null ? formatKes(single) : "—";
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return min === max ? formatKes(min) : `${formatKes(min)} – ${formatKes(max)}`;
+}
+
+/** Stock across every size on the listing. */
+function totalStock(p: Product) {
+  if (!(p.variants?.length)) return p.stockQty;
+  return p.variants.reduce((n, v) => n + (v.stockQty ?? 0), 0);
+}
+
 function BadgeControl({
   product,
   onSaved,
@@ -480,10 +637,31 @@ function ProductModal({
     return Number.isFinite(n) ? n : fallback;
   };
 
+  /**
+   * Prices from the sizes, when there are sizes.
+   *
+   * A listing with sizes carries its price on each size, so the product-level
+   * field is a fallback rather than something to retype. We derive it from the
+   * cheapest size — that's the number shop cards should show ("from Ksh 35")
+   * and the one anything without a size falls back to. Requiring it manually
+   * was blocking the whole save, which is why nothing reached the database.
+   */
+  const sizePrices = sizes
+    .map((z) => num(z.retailPrice, NaN))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const sizeWholesale = sizes
+    .map((z) => (z.wholesalePrice === "" ? NaN : num(z.wholesalePrice, NaN)))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+
+  const derivedRetail = sizePrices.length ? Math.min(...sizePrices) : null;
+  const derivedWholesale = sizeWholesale.length ? Math.min(...sizeWholesale) : null;
+
+  const hasSizePricing = sizes.length > 0 && sizePrices.length === sizes.length;
+
   const valid =
     form.name.trim().length > 0 &&
-    num(form.retailPrice, -1) >= 0 &&
-    form.retailPrice !== "";
+    // Either the product carries its own price, or every size does.
+    (hasSizePricing || (form.retailPrice !== "" && num(form.retailPrice, -1) >= 0));
 
   async function save() {
     setBusy(true);
@@ -494,8 +672,17 @@ function ProductModal({
         description: form.description.trim() || undefined,
         sku: form.sku.trim() || null,
         categoryId: form.categoryId || null,
-        retailPrice: kesToCents(num(form.retailPrice)),
-        wholesalePrice: form.wholesalePrice ? kesToCents(num(form.wholesalePrice)) : null,
+        // Typed value wins; otherwise the cheapest size fills it in, so the
+        // catalogue always has a sensible headline price.
+        retailPrice: kesToCents(
+          form.retailPrice !== "" ? num(form.retailPrice) : derivedRetail ?? 0
+        ),
+        wholesalePrice:
+          form.wholesalePrice !== ""
+            ? kesToCents(num(form.wholesalePrice))
+            : derivedWholesale != null
+            ? kesToCents(derivedWholesale)
+            : null,
         retailMinQty: Math.max(1, num(form.retailMinQty, 1)),
         wholesaleMinQty: Math.max(1, num(form.wholesaleMinQty, 1)),
         stockQty: num(form.stockQty),
@@ -644,24 +831,42 @@ function ProductModal({
         </div>
 
         <div>
-          <label className="label">Retail price (Ksh)</label>
+          <label className="label">
+            Retail price (Ksh)
+            {hasSizePricing && <span className="ml-1 font-normal text-faint">— optional</span>}
+          </label>
           <input
             className="field"
             type="number"
             min="0"
             value={form.retailPrice}
             onChange={(e) => set("retailPrice", e.target.value)}
+            placeholder={
+              hasSizePricing && derivedRetail != null ? `From sizes: ${derivedRetail}` : ""
+            }
           />
+          {hasSizePricing && (
+            <p className="mt-1 text-xs text-faint">
+              Taken from your cheapest size unless you set one here.
+            </p>
+          )}
         </div>
         <div>
-          <label className="label">Wholesale price (Ksh)</label>
+          <label className="label">
+            Wholesale price (Ksh)
+            {hasSizePricing && <span className="ml-1 font-normal text-faint">— optional</span>}
+          </label>
           <input
             className="field"
             type="number"
             min="0"
             value={form.wholesalePrice}
             onChange={(e) => set("wholesalePrice", e.target.value)}
-            placeholder="leave blank if none"
+            placeholder={
+              hasSizePricing && derivedWholesale != null
+                ? `From sizes: ${derivedWholesale}`
+                : "leave blank if none"
+            }
           />
         </div>
 

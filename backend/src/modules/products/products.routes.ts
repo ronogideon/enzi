@@ -613,9 +613,28 @@ productsRouter.put(
         else await tx.productVariant.create({ data: { ...data, productId: product.id } });
       }
 
+      /**
+       * Keep the product's headline price in step with its sizes.
+       *
+       * The listing card shows "from X", and a cart line without a size falls
+       * back to this, so leaving it at whatever was typed months ago would
+       * quietly misprice things. Derived from the cheapest active size.
+       */
+      const priced = variants.filter((v) => v.active);
+      const retail = priced.length ? Math.min(...priced.map((v) => v.retailPrice)) : undefined;
+      const wholesaleValues = priced
+        .map((v) => v.wholesalePrice)
+        .filter((p): p is number => p != null);
+      const wholesale = wholesaleValues.length ? Math.min(...wholesaleValues) : null;
+
       await tx.product.update({
         where: { id: product.id },
-        data: { hasVariants: variants.length > 0 },
+        data: {
+          hasVariants: variants.length > 0,
+          ...(retail != null ? { retailPrice: retail } : {}),
+          // Only clear it when there are sizes and none of them price wholesale.
+          ...(priced.length ? { wholesalePrice: wholesale } : {}),
+        },
       });
     });
 

@@ -1,79 +1,50 @@
-# Deploy checklist — Enzi v0.5.0 — Product variations
+# Deploy checklist — Enzi v0.5.1
 
-**Schema change.** Run `npm run db:push` after deploying the backend.
-Existing products are untouched — you add variations only where you want them.
-
----
-
-## Deploy
-
-1. **Backend** — redeploy, then `npm run db:push`
-2. **Admin** — redeploy
-3. **Storefront** — redeploy
+No schema change. Redeploy backend, admin and storefront.
 
 ---
 
-## How variations work now
+## The save bug — why wholesale never reached checkout
 
-**Colours are separate listings; sizes live inside each listing.**
+The product form still **required a listing-level retail price**, even when
+every size already had its own. So on a product like your Polymailer bags —
+A4 at 35/29 and A3 at 45/38 — the Save button stayed disabled, nothing was
+written, and checkout had no wholesale price to apply. The data looked complete
+on screen because it was; it just never got saved.
 
-- Each colour gets its **own product page, own URL, own photos, own SEO** —
-  what you asked for.
-- They share a hidden group id, so the shop shows a **colour switcher** and the
-  backend knows they're related.
-- **Sizes** are set per listing, and **price is set once per size** — every
-  colour of that size sells for the same amount, so you never retype it.
-- **Stock is per size, per colour listing**, so a sold-out combination
-  disappears on its own.
+Fixed both ends:
 
-### Setting it up
+- **The price fields are now optional** once your sizes are priced. They're
+  labelled "optional" and show what will be used ("From sizes: 35").
+- **The listing price is derived from your cheapest size** — so the shop card
+  can say "from Ksh 35" and anything without a size has a sensible fallback.
+- **The backend keeps it in step**: whenever you save sizes, the listing's
+  retail and wholesale prices are recalculated from them, so they can't drift
+  apart months later.
 
-1. Create the product as normal, add its photos.
-2. In **Sizes & pricing**, add each size with its retail price, wholesale price
-   and stock.
-3. In **Colours**, name this listing's colour ("White") and type the others
-   ("Chocolate, Blue") → **Create**.
-4. Each new colour is created as its own listing with everything copied
-   **except the photos**, and starts **hidden**.
-5. Open each new listing, upload that colour's photos, set its stock, switch it
-   on.
-
-Running **Create** again later only adds colours that don't exist yet.
+**After deploying, re-save each product that has sizes** (open it, hit Save).
+That writes the prices properly and wholesale will start applying at checkout.
 
 ---
 
-## Wholesale
+## The product list is less crowded
 
-Unchanged in rule, but now working across the separate listings:
+- **Edit, Duplicate and Delete are now icons** with hover tooltips, freeing the
+  horizontal space those three words were taking.
+- **Click a product name to expand it** — it reveals every size with its
+  retail/wholesale price and its own stock count.
+- **Retail and Wholesale show as a range** across sizes: `Ksh 35 – 45`.
+- **Stock is the total across all sizes**, with a note of how many sizes are
+  out.
 
-> Quantities combine **across colours within a size**, never across sizes.
-
-- 25 each of 4 colours in 8×10cm = 100 → wholesale ✓
-- 50 of 8×10 + 50 of 10×15 = two runs of 50 → neither qualifies ✓
-
-### On wholesale not applying
-
-The cart now **tells you where it stands** on every line: either
-**"Wholesale price applied"**, or **"N more of this size for the wholesale
-price"**. The product page says the same as you type quantities.
-
-If it isn't applying, that message will show you why. The usual cause is a
-**blank wholesale price** on the size, or a **wholesale minimum** that hasn't
-been reached — both now visible rather than silent. Check:
-
-- **Sizes & pricing** → is the Wholesale column filled for that size?
-- **Wholesale minimum quantity** on the product → what is it set to?
+All of it works on mobile too — tap the size count to expand.
 
 ---
 
 ## Worth checking
 
-- [ ] Existing products without variations behave exactly as before.
-- [ ] Add two sizes with different prices; create two extra colours.
-- [ ] New colour listings appear hidden, with the sizes and prices copied and
-      no photos.
-- [ ] On the shop: the colour chips switch the photos and the URL.
-- [ ] Set one colour's size stock to 0 → that chip shows sold out.
-- [ ] Put 50 of one size and 50 of another with a minimum of 100 → retail, and
-      the cart says how many more are needed. Then 25 × 4 colours of one size →
-      wholesale applies.
+- [ ] Open a product with sizes → Save works **without** typing a listing price.
+- [ ] Re-save your Polymailer listings, then check the wholesale price applies
+      at checkout once you cross 100 of one size.
+- [ ] Product list shows `Ksh 35 – 45` and the combined stock.
+- [ ] Click a product name → sizes expand with per-size stock.
