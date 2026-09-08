@@ -1,80 +1,54 @@
-# Deploy checklist — Enzi v0.6.0 — Roles, returns & accountability
+# Deploy checklist — Enzi v0.6.1
 
-**Schema change.** Run `npm run db:push` after deploying the backend.
+No schema change. Redeploy the **admin** (backend and storefront are
+version-only).
 
 ---
 
-## Who sees money
+## The colour creator was hidden — my mistake
 
-Shop floor and customer care no longer receive revenue, order totals or item
-prices **from the API at all** — not hidden in the UI, simply not sent, so it
-can't leak from a browser left open at the counter. They see the orders, the
-customer's name and phone, the items and quantities: everything needed to pack
-and send.
+It was built, but I wrapped it in `{product && …}`, so it only rendered when
+**editing** an existing product and never when creating one. That's why you
+couldn't find it in the listing flow.
 
-Managers and the owner see everything, as before.
+It now shows **always**, in every product form, right under the photos:
 
-## Fulfilment authority
+- **This listing's colour** — free text, optional. Leave it blank and the
+  product simply has no colour variations, exactly like leaving sizes empty.
+- **Create listings for** — comma-separated colours, which generates a sibling
+  listing per colour.
 
-| Action | Who |
-|---|---|
-| Confirm → packing → packed → **out for delivery** | Everyone |
-| **Mark delivered** | Customer care, manager, owner |
-| **Mark returned** | Everyone |
-| Cancel | Manager, owner |
-| **Refund** | Requested by anyone, **approved by someone else** |
+One honest constraint: creating sibling listings copies *this* listing, so the
+product has to exist first. On a brand-new product the colour name field works
+immediately, and the create button explains it needs saving first. Save, reopen,
+and create the colours. Editing an existing product works in one pass.
 
-**Refunds now need two people.** Anyone can request one with a reason; a manager
-approves it — unless the request came *from* a manager, in which case only the
-owner can. Self-approval is blocked outright. Nothing is refunded until approved.
+## Photos are squared without cropping
 
-## Returns
+The shop's grids and galleries are square, so a portrait phone photo previously
+got cropped at display time — and on a mailer shot vertically, the crop takes
+the ends off, which is exactly the part showing the size.
 
-New status. Any staff member can mark an order returned, and **stock goes back
-on the shelf automatically**, per size and colour. A return is separate from a
-refund: goods coming back doesn't move money until a refund is approved.
+Uploads are now **fitted inside a square and centred**, so the whole image is
+kept. The padding samples the photo's own corners, so a white studio shot pads
+white and a dark backdrop pads dark rather than banding. If the corners
+disagree — a busy photo with no clear backdrop — it pads white instead of
+inventing a muddy average.
 
-## Performance
+Everything else is unchanged: still resized to 1400px, still WebP where
+supported, still stepped down to around 300 KB.
 
-New **Performance** page, reached from your own name in the sidebar. Measured in
-work — orders packed, sent, returned — with a per-day bar chart. Deliberately no
-money, so the whole team can use it.
-
-Everyone sees themselves and their colleagues. **Only the owner sees the
-owner's.**
-
-## Accountability
-
-Every significant change is recorded against whoever made it: promotions
-started, settings changed, staff created, orders advanced, refunds requested and
-approved. Managers see the team's activity; **the owner also sees managers'** —
-which is the point.
-
-The log is on the Performance page under "Recent changes". Values of secrets are
-never recorded, only that the key changed.
-
-## Owner-only settings
-
-Managers can no longer change **payment keys or social links** — those are the
-owner's. Enforced on the server, so it isn't just a hidden button.
-
-## Smaller things
-
-- **Staff page** uses icon actions and a compact table; the role cards are
-  folded into "What each role can do" so the accounts get the room.
-- **Mobile storefront**: the cart icon now sits beside the menu button, with its
-  count badge — no more opening the menu to reach the cart.
+Existing photos are untouched. Re-upload any you want squared.
 
 ---
 
 ## Worth checking
 
-- [ ] Sign in as a STAFF account: no revenue on the dashboard, no prices on
-      orders, and "Mark delivered" is absent.
-- [ ] As STAFF, mark an order returned → stock goes back up on that size.
-- [ ] Request a refund as one account, approve as another; try approving your
-      own request and confirm it's refused.
-- [ ] Owner: open Performance → see the team plus "Recent changes".
-- [ ] Manager: confirm the owner's figures are not listed.
-- [ ] Manager: try changing an M-Pesa key → refused.
-- [ ] Phone: cart icon beside the menu, with the item count.
+- [ ] **Add product** → the Colours panel is visible under the photos, with the
+      create button explaining it needs saving first.
+- [ ] Save, reopen, type "Chocolate, Blue" → two new listings appear, hidden,
+      with the sizes and prices copied.
+- [ ] Leave the colour blank on a different product → no colour switcher on the
+      shop, exactly as before.
+- [ ] Upload a tall photo → it arrives square with the full image visible and
+      padding matched to its background.

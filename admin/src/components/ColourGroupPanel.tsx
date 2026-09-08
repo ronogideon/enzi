@@ -21,7 +21,8 @@ export function ColourGroupPanel({
   onColourNameChange,
   onCreated,
 }: {
-  product: Product;
+  /** Null while creating — the listing has to exist before siblings can copy it. */
+  product: Product | null;
   colourName: string;
   onColourNameChange: (v: string) => void;
   onCreated: () => void;
@@ -31,7 +32,9 @@ export function ColourGroupPanel({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string[] | null>(null);
 
-  const grouped = !!product.groupId;
+  const grouped = !!product?.groupId;
+  // Colour variations copy this listing, so it has to be saved first.
+  const canCreateSiblings = !!product;
 
   async function create() {
     const names = colours
@@ -49,6 +52,7 @@ export function ColourGroupPanel({
         ...(colourName.trim() ? [{ name: colourName.trim() }] : []),
         ...names.map((name) => ({ name })),
       ];
+      if (!product) return;
       const res = await api.createColourListings(product.id, payload);
       setResult(res.created);
       setColours("");
@@ -90,18 +94,21 @@ export function ColourGroupPanel({
               value={colours}
               onChange={(e) => setColours(e.target.value)}
               placeholder="Chocolate, Blue"
+              disabled={!canCreateSiblings}
             />
             <button
               type="button"
               className="btn-ghost shrink-0 text-xs"
               onClick={create}
-              disabled={busy || !colours.trim()}
+              disabled={busy || !colours.trim() || !canCreateSiblings}
             >
               {busy ? "…" : "Create"}
             </button>
           </div>
           <p className="mt-1 text-xs text-faint">
-            Comma separated. Copies everything here except the photos.
+            {canCreateSiblings
+              ? "Comma separated. Copies everything here except the photos."
+              : "Save this product first, then reopen it to create its other colours."}
           </p>
         </div>
       </div>

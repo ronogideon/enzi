@@ -14,6 +14,53 @@ const QUALITY = 0.8;
 /** Anything above this after the first pass gets re-encoded harder. */
 const TARGET_BYTES = 300 * 1024;
 
+/**
+ * Average the four corners of the source image to find its background colour.
+ * Returns null if the corners disagree — a busy photo is better padded white
+ * than with a muddy average of unrelated pixels.
+ */
+function backdropOf(img: HTMLImageElement, _side: number): string | null {
+  try {
+    const probe = document.createElement("canvas");
+    probe.width = img.width;
+    probe.height = img.height;
+    const pctx = probe.getContext("2d");
+    if (!pctx) return null;
+    pctx.drawImage(img, 0, 0);
+
+    const inset = Math.max(1, Math.floor(Math.min(img.width, img.height) * 0.02));
+    const points: [number, number][] = [
+      [inset, inset],
+      [img.width - inset, inset],
+      [inset, img.height - inset],
+      [img.width - inset, img.height - inset],
+    ];
+
+    const samples = points.map(([x, y]) => {
+      const d = pctx.getImageData(Math.max(0, x - 1), Math.max(0, y - 1), 1, 1).data;
+      return [d[0], d[1], d[2]] as [number, number, number];
+    });
+
+    const avg = samples.reduce(
+      (a, c) => [a[0] + c[0] / 4, a[1] + c[1] / 4, a[2] + c[2] / 4] as [number, number, number],
+      [0, 0, 0] as [number, number, number]
+    );
+
+    // If any corner is far from the average, the edges aren't a backdrop.
+    const spread = Math.max(
+      ...samples.map((c) =>
+        Math.max(Math.abs(c[0] - avg[0]), Math.abs(c[1] - avg[1]), Math.abs(c[2] - avg[2]))
+      )
+    );
+    if (spread > 28) return null;
+
+    return `rgb(${Math.round(avg[0])}, ${Math.round(avg[1])}, ${Math.round(avg[2])})`;
+  } catch {
+    // A cross-origin image taints the canvas; padding white is a fine fallback.
+    return null;
+  }
+}
+
 export async function compressImage(file: File): Promise<{ data: string; width: number; height: number }> {
   const bitmapUrl = URL.createObjectURL(file);
   try {
@@ -24,16 +71,41 @@ export async function compressImage(file: File): Promise<{ data: string; width: 
       el.src = bitmapUrl;
     });
 
-    const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
-    const width = Math.round(img.width * scale);
-    const height = Math.round(img.height * scale);
+    /**
+     * Square the photo without cutting anything off.
+     *
+     * The shop's grids and galleries are square, so a portrait phone photo
+     * either gets cropped or letterboxed at display time. Cropping to fill is
+     * the usual choice and it's wrong here — a mailer shot vertically would
+     * lose its ends, which is precisely the part that shows the size.
+     *
+     * So we fit the whole image inside a square canvas, centred, and fill the
+     * remainder. Nothing is lost, every product tile lines up, and the padding
+     * is invisible against the shop's dark background.
+     */
+    const longest = Math.max(img.width, img.height);
+    const side = Math.min(MAX_EDGE, longest);
+
+    const scale = side / longest;
+    const drawW = Math.round(img.width * scale);
+    const drawH = Math.round(img.height * scale);
 
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = side;
+    canvas.height = side;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Your browser blocked image processing");
-    ctx.drawImage(img, 0, 0, width, height);
+
+    // Sample the corners to guess the photo's own backdrop, so the padding
+    // blends instead of banding against a white studio shot.
+    ctx.fillStyle = backdropOf(img, side) ?? "#ffffff";
+    ctx.fillRect(0, 0, side, side);
+
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, (side - drawW) / 2, (side - drawH) / 2, drawW, drawH);
+
+    const width = side;
+    const height = side;
 
     // WebP where the browser supports it — typically 25-35% smaller than JPEG
     // at the same visual quality, which matters because these bytes live in
@@ -273,7 +345,8 @@ export function ImageUploader({
 
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       <p className="mt-2 text-xs text-faint">
-        JPEG, PNG or WebP. Large photos are resized automatically before upload.
+        JPEG, PNG or WebP. Photos are squared automatically — the whole image is
+        kept and centred, never cropped — then resized and compressed before upload.
       </p>
     </div>
   );

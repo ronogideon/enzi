@@ -790,16 +790,14 @@ function ProductModal({
           <ImageUploader images={images} onChange={setImages} />
         </div>
 
-        {product && (
-          <div className="sm:col-span-2 border-t border-ink-line pt-5">
-            <ColourGroupPanel
-              product={product}
-              colourName={colourName}
-              onColourNameChange={setColourName}
-              onCreated={onSaved}
-            />
-          </div>
-        )}
+        <div className="sm:col-span-2 border-t border-ink-line pt-5">
+          <ColourGroupPanel
+            product={product}
+            colourName={colourName}
+            onColourNameChange={setColourName}
+            onCreated={onSaved}
+          />
+        </div>
 
         <div className="sm:col-span-2 border-t border-ink-line pt-5">
           <VariantEditor
