@@ -1,54 +1,79 @@
-# Deploy checklist — Enzi v0.6.1
+# Deploy checklist — Enzi v0.6.2
 
-No schema change. Redeploy the **admin** (backend and storefront are
+No schema change. Redeploy the **backend** and the **storefront** (the admin is
 version-only).
+
+The backend is not optional here: the storefront now needs each colour
+sibling's own prices, and the API wasn't sending them.
 
 ---
 
-## The colour creator was hidden — my mistake
+## The counter emptied every time you changed colour
 
-It was built, but I wrapped it in `{product && …}`, so it only rendered when
-**editing** an existing product and never when creating one. That's why you
-couldn't find it in the listing flow.
+The state that holds the quantities was already written to cover every colour.
+What emptied it was the colour switch itself: `pickColour` called
+`router.replace('/product/<slug>')`, which is a real navigation — Next
+re-renders the page's server component for the new slug and remounts the buy
+panel, and a remounted component starts from nothing. So typing 10 into Black
+and tapping Pink threw the 10 away, chip bubble and all.
 
-It now shows **always**, in every product form, right under the photos:
+Colour switching now updates the address bar with `history.replaceState`. Same
+URL behaviour, no navigation, nothing unmounts. The selection stays.
 
-- **This listing's colour** — free text, optional. Leave it blank and the
-  product simply has no colour variations, exactly like leaving sizes empty.
-- **Create listings for** — comma-separated colours, which generates a sibling
-  listing per colour.
+## Add to cart takes everything, once
 
-One honest constraint: creating sibling listings copies *this* listing, so the
-product has to exist first. On a brand-new product the colour name field works
-immediately, and the create button explains it needs saving first. Save, reopen,
-and create the colours. Editing an existing product works in one pass.
+One selection is held for the whole colour group, and one tap adds all of it:
 
-## Photos are squared without cropping
+- Type quantities against Black's sizes, switch to Pink, type more there, tap
+  once. Every line goes into the cart together.
+- The button says what it will do — **Add 140 pcs to cart** — rather than
+  leaving it to be guessed.
+- The green bubble on each colour chip shows what is held against it, and the
+  running total names the part that is sitting in a colour you can't see.
+- Stickers and anything else without sizes work the same way now. Previously
+  that panel kept its own private quantity and only ever added the colour on
+  screen.
 
-The shop's grids and galleries are square, so a portrait phone photo previously
-got cropped at display time — and on a mailer shot vertically, the crop takes
-the ends off, which is exactly the part showing the size.
+The selection survives a reload or a trip to the cart and back — it's kept in
+`sessionStorage` per colour group, cleared once added, and anything that has
+sold out in the meantime is dropped rather than restored.
 
-Uploads are now **fitted inside a square and centred**, so the whole image is
-kept. The padding samples the photo's own corners, so a white studio shot pads
-white and a dark backdrop pads dark rather than banding. If the corners
-disagree — a busy photo with no clear backdrop — it pads white instead of
-inventing a muddy average.
+## Prices on the page now match what the cart charges
 
-Everything else is unchanged: still resized to 1400px, still WebP where
-supported, still stepped down to around 300 KB.
+Three things were quietly wrong, and all three could show a customer one number
+and charge another:
 
-Existing photos are untouched. Re-upload any you want squared.
+- **Sibling colours had no prices of their own.** The API sent a sibling's
+  photos, sizes and stock but not its price, so a sizeless colour listing was
+  priced from whichever colour's page you happened to be on. Fine while every
+  colour costs the same, wrong the day one doesn't.
+- **The wholesale tag counted one colour.** The cart qualifies wholesale across
+  colours of the same size and price; the page counted only what was on screen,
+  so it showed retail on an order the cart would have discounted. The page now
+  groups exactly as the cart does.
+- **The quantity boxes never re-read their value.** After adding to cart the
+  fields still showed the old numbers while the real quantity was zero.
+
+## Sold-out sizeless products showed an Add to cart button
+
+`AddToCartPanel` tested `product.stockQty <= 0`, but the public API strips stock
+counts, so the test read `undefined <= 0` — always false. It uses `inStock` now,
+which is the field the API actually sends.
 
 ---
 
 ## Worth checking
 
-- [ ] **Add product** → the Colours panel is visible under the photos, with the
-      create button explaining it needs saving first.
-- [ ] Save, reopen, type "Chocolate, Blue" → two new listings appear, hidden,
-      with the sizes and prices copied.
-- [ ] Leave the colour blank on a different product → no colour switcher on the
-      shop, exactly as before.
-- [ ] Upload a tall photo → it arrives square with the full image visible and
-      padding matched to its background.
+- [ ] A product with colours **and** sizes: put 10 against a size in Black,
+      switch to Pink, put 10 against a size there. Black's chip still shows 10,
+      the total reads 20 pcs, the button says **Add 20 pcs to cart**.
+- [ ] Tap it once → both lines land in the cart, the fields go back to 0, and
+      the chip bubbles clear.
+- [ ] Reach a wholesale threshold across two colours (60 + 40 of one size) →
+      both rows show "wholesale", and the cart total agrees with the page.
+- [ ] A sticker (colours, no sizes): set 2 on Gold, switch to Black, set 2 →
+      the button offers 4 pcs and the cart gets both colours.
+- [ ] Switch colours a few times and check the URL follows, then reload → the
+      page opens on that colour with the selection intact.
+- [ ] Open a colour that is sold out → still not selectable; a sold-out sizeless
+      product now shows **Out of stock** instead of an active button.

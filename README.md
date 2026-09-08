@@ -526,6 +526,29 @@ burst. When someone is within a short reach of the threshold, a single button
 offers to close the gap. The cart shows total wholesale savings, because a price
 lower than expected otherwise just looks like a bug.
 
+### One selection across every colour
+
+Colours are separate listings, but wholesale is earned across them: 60 black
+and 40 pink of the same size is 100 of that size, and the cart prices it that
+way. So the product page holds **one selection for the whole colour group**.
+
+- A quantity typed against black survives switching to pink. The colour chip
+  carries a small green bubble with the pieces held against it.
+- **Add to cart adds the lot** — every colour, every size, in one action. The
+  button says how many pieces it will add.
+- The running total, the per-row price and the "wholesale" tag all count the
+  combined quantity, using the same grouping key as the cart (size plus unit
+  price). The page cannot promise a rate the cart then refuses.
+- The selection is kept in `sessionStorage` under `enzi.pdp.v1.<groupId>`, so a
+  reload, a look at the cart, or a tap on a sibling's real URL comes back to
+  what was chosen. It is cleared once the batch is added, and anything that has
+  since sold out is dropped when it is restored.
+
+Colour switching uses `history.replaceState`, not `router.replace`. The URL
+still updates, but there is no navigation — a navigation re-renders the server
+component and remounts the panel, which is exactly how the selection used to be
+lost on every switch.
+
 ---
 
 ## Motion

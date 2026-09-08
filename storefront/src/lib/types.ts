@@ -31,6 +31,7 @@ export interface ProductVariant {
 export interface ColourOption {
   id: string;
   slug: string;
+  name?: string;
   colourName?: string | null;
   colourHex?: string | null;
   swatchMediaId?: string | null;
@@ -38,6 +39,14 @@ export interface ColourOption {
   images: ProductImage[];
   variants: ProductVariant[];
   inStock: boolean;
+  /** A sibling carries its own prices — it is a separate listing, not a skin. */
+  hasVariants?: boolean;
+  retailPrice?: number;
+  wholesalePrice?: number | null;
+  retailMinQty?: number;
+  wholesaleMinQty?: number;
+  effectivePrice?: number;
+  effectiveWholesalePrice?: number | null;
 }
 
 export interface Product {

@@ -17,14 +17,44 @@ import { QuantityInput } from "./QuantityInput";
  * "wholesale tier" means or ask whether they qualify: they raise the number and
  * the price changes in front of them.
  */
-export function AddToCartPanel({ product }: { product: Product }) {
+export function AddToCartPanel({
+  product,
+  quantity,
+  onQuantityChange,
+  onAdd,
+  othersSelected = 0,
+  othersInPriceGroup = 0,
+}: {
+  product: Product;
+  /**
+   * The quantity held for this listing by the product page, when the listing
+   * is one colour of a group. Undefined means nothing has been chosen for it
+   * yet, so the box shows the minimum the way it always has.
+   */
+  quantity?: number;
+  onQuantityChange?: (qty: number) => void;
+  /** Adds this listing together with every other colour's selection. */
+  onAdd?: (qty: number) => void;
+  /** Pieces chosen against the other colours, for the running total. */
+  othersSelected?: number;
+  /**
+   * Of those, the ones that count toward this listing's wholesale threshold —
+   * same-priced colours qualify together, which is how the cart prices them.
+   */
+  othersInPriceGroup?: number;
+}) {
   const { add } = useCart();
   const { toast } = useToast();
 
   const min = product.retailMinQty ?? 1;
   const wholesaleMin = product.wholesalePrice != null ? product.wholesaleMinQty : null;
 
-  const [qty, setQty] = useState(min);
+  // Controlled by the page when colours are in play, so switching colour keeps
+  // what was chosen here; standalone otherwise.
+  const [localQty, setLocalQty] = useState(min);
+  const grouped = onQuantityChange != null;
+  const qty = grouped ? quantity ?? min : localQty;
+  const setQty = grouped ? onQuantityChange! : setLocalQty;
   // Only celebrate the first crossing per visit — a toast on every increment
   // past the threshold would be noise, not delight.
   const [celebrated, setCelebrated] = useState(false);
@@ -32,17 +62,29 @@ export function AddToCartPanel({ product }: { product: Product }) {
   const retailUnit = product.effectivePrice ?? product.retailPrice;
   const wholesaleUnit = product.effectiveWholesalePrice ?? product.wholesalePrice ?? null;
 
-  const isWholesale = wholesaleMin != null && qty >= wholesaleMin;
+  /**
+   * What actually earns the wholesale price. Same-priced colours in a group
+   * qualify together in the cart, so 1 gold and 2 black reach a threshold of 3
+   * — the panel has to count the same way or it quotes retail on an order that
+   * will be charged at wholesale.
+   */
+  const qualifyingQty = qty + othersInPriceGroup;
+
+  const isWholesale = wholesaleMin != null && qualifyingQty >= wholesaleMin;
   const unitPrice = isWholesale && wholesaleUnit != null ? wholesaleUnit : retailUnit;
   const savingPerUnit = wholesaleUnit != null ? Math.max(0, retailUnit - wholesaleUnit) : 0;
 
-  const out = product.stockQty <= 0;
+  // The public API never sends stock counts, so `stockQty` was always
+  // undefined here and this test never fired — a sold-out listing still
+  // offered an Add to cart button. `inStock` is the field the API does send.
+  const out = product.inStock === false;
 
   /** Single place quantity changes, so the celebration can't be missed. */
   function changeQty(next: number) {
     const clamped = Math.max(min, next);
+    const after = clamped + othersInPriceGroup;
     const crossed =
-      wholesaleMin != null && clamped >= wholesaleMin && qty < wholesaleMin;
+      wholesaleMin != null && after >= wholesaleMin && qualifyingQty < wholesaleMin;
 
     setQty(clamped);
 
@@ -52,17 +94,24 @@ export function AddToCartPanel({ product }: { product: Product }) {
     }
     // Dropping back below the threshold re-arms the celebration, so the next
     // crossing still feels like something happened.
-    if (wholesaleMin != null && clamped < wholesaleMin) setCelebrated(false);
+    if (wholesaleMin != null && after < wholesaleMin) setCelebrated(false);
   }
 
   function handleAdd() {
-    add(product, Math.max(qty, min));
+    const quantity = Math.max(qty, min);
+    // With colours, the page owns the add: this listing goes in alongside
+    // whatever was chosen against the others, in one action.
+    if (onAdd) {
+      onAdd(quantity);
+      return;
+    }
+    add(product, quantity);
     toast(isWholesale ? "Added at the wholesale price" : "Added to cart", {
       duration: 2000,
     });
   }
 
-  const toWholesale = wholesaleMin != null ? wholesaleMin - qty : 0;
+  const toWholesale = wholesaleMin != null ? wholesaleMin - qualifyingQty : 0;
 
   return (
     <div className="mt-8">
@@ -96,6 +145,13 @@ export function AddToCartPanel({ product }: { product: Product }) {
                 — save {formatKes(savingPerUnit)} each
               </span>
             ) : null}
+            {/* The threshold counts the other colours too, so don't let the
+                number read as if this colour has to reach it alone. */}
+            {othersInPriceGroup > 0 && (
+              <span className="block text-xs text-faint">
+                Counted across colours — {qualifyingQty} pcs so far
+              </span>
+            )}
           </p>
         )}
       </div>
@@ -105,7 +161,7 @@ export function AddToCartPanel({ product }: { product: Product }) {
       {wholesaleMin != null && !isWholesale && toWholesale > 0 && toWholesale <= Math.max(10, wholesaleMin * 0.25) && (
         <button
           type="button"
-          onClick={() => changeQty(wholesaleMin)}
+          onClick={() => changeQty(qty + toWholesale)}
           className="animate-fade mt-3 rounded-full border border-whatsapp/30 bg-whatsapp/10 px-4 py-2 text-xs font-medium text-whatsapp transition-colors hover:bg-whatsapp/20"
         >
           Add {toWholesale} more for the wholesale price
@@ -120,7 +176,11 @@ export function AddToCartPanel({ product }: { product: Product }) {
           disabled={out}
           className="btn-primary flex-1 sm:flex-none sm:px-10"
         >
-          {out ? "Out of stock" : "Add to cart"}
+          {out
+            ? "Out of stock"
+            : othersSelected > 0
+            ? `Add ${qty + othersSelected} pcs to cart`
+            : "Add to cart"}
         </button>
       </div>
 
@@ -129,6 +189,14 @@ export function AddToCartPanel({ product }: { product: Product }) {
         <span className="font-medium text-cloud">{formatKes(unitPrice * qty)}</span>{" "}
         for {qty} pcs
       </p>
+
+      {/* Other colours are still in play — say so, so the button's number
+          isn't a surprise and nobody thinks switching colour lost them. */}
+      {othersSelected > 0 && (
+        <p className="mt-1 text-sm text-muted">
+          Plus {othersSelected} pcs chosen in other colours, added together.
+        </p>
+      )}
 
       <div className="mt-4">
         <Link

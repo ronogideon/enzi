@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Product, ProductVariant } from "@/lib/types";
 import { formatKes } from "@/lib/money";
 import { imageUrl } from "@/lib/api";
@@ -22,6 +22,7 @@ export function VariantSelector({
   variants: incoming,
   quantities,
   onQuantityChange,
+  groupQtyFor,
   onAdd,
   summary,
 }: {
@@ -31,9 +32,17 @@ export function VariantSelector({
   /** Quantities across EVERY colour, keyed by variant id. */
   quantities: Record<string, number>;
   onQuantityChange: (variantId: string, qty: number) => void;
+  /** Combined quantity of this size across every colour — what earns wholesale. */
+  groupQtyFor: (variant: ProductVariant) => number;
   onAdd: () => void;
   /** Totals across all colours, for the summary line. */
-  summary: { units: number; cost: number; wholesaleApplied: boolean };
+  summary: {
+    units: number;
+    cost: number;
+    wholesaleApplied: boolean;
+    /** Lines below their minimum, counted across every colour. */
+    belowMin: number;
+  };
 }) {
 
   const variants = useMemo(
@@ -45,33 +54,29 @@ export function VariantSelector({
   const minQty = Math.max(1, product.retailMinQty ?? 1);
   const setQty = onQuantityChange;
 
-  // Only this colour's lines — the parent owns the full picture.
-  const chosen = variants
-    .map((variant) => ({ variant, quantity: quantities[variant.id] ?? 0 }))
-    .filter((e) => e.quantity > 0);
-
   const wholesaleMin = Math.max(1, product.wholesaleMinQty ?? 1);
 
   /**
    * Price each size at the rate it has actually earned.
    *
-   * Wholesale is won per size, so a line qualifies on its own quantity — the
-   * total was previously computed at retail regardless, which is why the page
-   * said Ksh 3,500 for 100 while the cart correctly charged the wholesale rate.
-   *
-   * The page can only count what's on screen (this colour). Wholesale also
-   * counts across colours, so this is a floor: a buyer adding a second colour
-   * can qualify at the cart even if this page hasn't shown it yet.
+   * Wholesale is won per size across the whole colour group, which is how the
+   * cart prices it, so the row reads the combined quantity from the parent
+   * rather than only what's on screen. 60 black plus 40 pink of one size shows
+   * the wholesale rate on both, because that is what will be charged.
    */
-  const priceFor = (v: ProductVariant, qty: number) =>
-    v.wholesalePrice != null && qty >= wholesaleMin ? v.wholesalePrice : v.retailPrice;
+  const qualifies = (v: ProductVariant) =>
+    v.wholesalePrice != null && groupQtyFor(v) >= wholesaleMin;
 
+  const priceFor = (v: ProductVariant) =>
+    qualifies(v) ? v.wholesalePrice! : v.retailPrice;
 
   // Every line must clear the minimum — the floor is per option, not per order.
-  // Checked against ALL colours, not just the one on screen: someone who put 60
-  // into black then switched to pink would otherwise find the button dead.
-  const belowMin = chosen.filter((e) => e.quantity < minQty);
-  const canAdd = summary.units > 0 && belowMin.length === 0;
+  // Counted across ALL colours by the parent, not just the one on screen.
+  const canAdd = summary.units > 0 && summary.belowMin === 0;
+
+  /** Of the running total, how much is held against colours not on screen. */
+  const onScreen = variants.reduce((n, v) => n + (quantities[v.id] ?? 0), 0);
+  const elsewhere = Math.max(0, summary.units - onScreen);
 
   const handleAdd = onAdd;
 
@@ -116,9 +121,9 @@ export function VariantSelector({
 
                 <span className="shrink-0 text-right text-sm">
                   <span className="font-medium text-white">
-                    {formatKes(priceFor(v, qty))}
+                    {formatKes(priceFor(v))}
                   </span>
-                  {v.wholesalePrice != null && qty >= wholesaleMin && (
+                  {qualifies(v) && (
                     <span className="block text-[10px] text-whatsapp">wholesale</span>
                   )}
                 </span>
@@ -145,6 +150,13 @@ export function VariantSelector({
               {summary.wholesaleApplied && (
                 <span className="ml-2 text-xs text-whatsapp">wholesale price applied</span>
               )}
+              {/* The total counts colours that aren't on screen, so say so —
+                  otherwise it reads as a bug rather than as the running order. */}
+              {elsewhere > 0 && (
+                <span className="block text-xs text-muted">
+                  Includes {elsewhere} pcs chosen in other colours
+                </span>
+              )}
               {/* Wholesale is earned per size across colours, so the count that
                   matters is per size — spell that out rather than letting a
                   buyer assume the cart total decides it. */}
@@ -160,12 +172,14 @@ export function VariantSelector({
           )}
         </div>
 
+        {/* The label names the whole selection, so it's clear that one tap
+            takes every colour rather than only what's on screen. */}
         <button onClick={handleAdd} disabled={!canAdd} className="btn-primary px-8">
-          Add to cart
+          {summary.units > 0 ? `Add ${summary.units} pcs to cart` : "Add to cart"}
         </button>
       </div>
 
-      {belowMin.length > 0 && (
+      {summary.belowMin > 0 && (
         <p className="mt-2 text-xs text-gold">
           Each option needs at least {minQty} pcs.
         </p>
@@ -191,6 +205,13 @@ function QtyBox({
   onChange: (n: number) => void;
 }) {
   const [draft, setDraft] = useState(value ? String(value) : "0");
+
+  // The box used to read `value` once and never again, so clearing the
+  // selection after an add — or restoring a saved one — left the old number
+  // sitting in the field while the real quantity was something else.
+  useEffect(() => {
+    setDraft(value ? String(value) : "0");
+  }, [value]);
 
   function commit(raw: string) {
     const n = parseInt(raw.replace(/[^0-9]/g, ""), 10);

@@ -60,10 +60,25 @@ function publicSiblings(siblings: any[]) {
   return siblings.map((s: any) => ({
     id: s.id,
     slug: s.slug,
+    name: s.name,
     colourName: s.colourName,
     colourHex: s.colourHex,
     swatchMediaId: s.swatchMediaId,
     groupPosition: s.groupPosition,
+    // Each sibling is a product in its own right and may be priced
+    // differently. Without these the storefront fell back to the listing the
+    // page was rendered from, so switching colour on a product with no size
+    // variants could show — and add to cart — the wrong price.
+    hasVariants: s.hasVariants,
+    retailPrice: s.retailPrice,
+    wholesalePrice: s.wholesalePrice,
+    retailMinQty: s.retailMinQty,
+    wholesaleMinQty: s.wholesaleMinQty,
+    effectivePrice: effectiveUnitPrice(s, "RETAIL", s.promotions ?? []),
+    effectiveWholesalePrice:
+      s.wholesalePrice == null
+        ? null
+        : effectiveUnitPrice(s, "WHOLESALE", s.promotions ?? []),
     images: (s.images ?? []).map((im: any) => ({
       id: im.id,
       url: im.url,
@@ -213,6 +228,7 @@ productsRouter.get(
           include: {
             images: { orderBy: { position: "asc" } },
             variants: { where: { active: true }, orderBy: { position: "asc" } },
+            promotions: true,
           },
           orderBy: [{ groupPosition: "asc" }, { createdAt: "asc" }],
         })
