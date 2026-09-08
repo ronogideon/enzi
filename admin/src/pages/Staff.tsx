@@ -42,6 +42,33 @@ function suggestPassword(): string {
   return `${word}-${digits}`;
 }
 
+/** Icon-only action with an accessible label and hover tooltip. */
+function IconAction({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-ink-hover active:scale-95 ${
+        danger ? "hover:text-danger" : "hover:text-cloud"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Staff() {
   const { staff: me } = useAuth();
   const list = useAsync(() => api.staffList(), []);
@@ -151,8 +178,8 @@ export default function Staff() {
                 <th className="th">Name</th>
                 <th className="th">Email</th>
                 <th className="th">Role</th>
-                <th className="th text-right">Orders packed</th>
-                <th className="th">Last sign-in</th>
+                <th className="th text-right">Packed</th>
+                <th className="th">Last seen</th>
                 <th className="th text-center">Active</th>
                 <th className="th"></th>
               </tr>
@@ -166,8 +193,8 @@ export default function Staff() {
                       {m.name}
                       {isMe && <span className="ml-2 text-xs text-faint">(you)</span>}
                       {m.mustChangePassword && (
-                        <span className="ml-2">
-                          <Badge tone="gold">must reset</Badge>
+                        <span className="ml-2 whitespace-nowrap">
+                          <Badge tone="gold">new</Badge>
                         </span>
                       )}
                     </td>
@@ -176,13 +203,20 @@ export default function Staff() {
                       {m.phone && <div className="text-xs text-faint">{m.phone}</div>}
                     </td>
                     <td className="td">
-                      <Badge tone={m.role === "SUPERADMIN" ? "indigo" : "muted"}>
-                        {ROLE_INFO[m.role]?.label ?? m.role}
-                      </Badge>
+                      <span className="whitespace-nowrap">
+                        <Badge tone={m.role === "SUPERADMIN" ? "indigo" : "muted"}>
+                          {ROLE_INFO[m.role]?.label ?? m.role}
+                        </Badge>
+                      </span>
                     </td>
                     <td className="td text-right text-muted">{m._count?.packedOrders ?? 0}</td>
-                    <td className="td text-xs text-muted">
-                      {m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleString() : "never"}
+                    <td className="td whitespace-nowrap text-xs text-muted">
+                      {m.lastLoginAt
+                        ? new Date(m.lastLoginAt).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                          })
+                        : "never"}
                     </td>
                     <td className="td text-center">
                       <div className="flex justify-center">
@@ -194,17 +228,19 @@ export default function Staff() {
                       </div>
                     </td>
                     <td className="td">
-                      <div className="flex justify-end gap-3 text-sm">
-                        <button className="text-indigo hover:underline" onClick={() => setEditing(m)}>
-                          Edit
-                        </button>
-                        <button className="text-muted hover:text-cloud" onClick={() => setResetting(m)}>
-                          Reset password
-                        </button>
+                      {/* Icons rather than three phrases — "Reset password"
+                          alone was wrapping and pushing the row off-screen. */}
+                      <div className="flex justify-end gap-1">
+                        <IconAction label="Edit" onClick={() => setEditing(m)}>
+                          <Icon.Edit className="h-4 w-4" />
+                        </IconAction>
+                        <IconAction label="Reset password" onClick={() => setResetting(m)}>
+                          <Icon.Settings className="h-4 w-4" />
+                        </IconAction>
                         {!isMe && (
-                          <button className="text-muted hover:text-danger" onClick={() => remove(m)}>
-                            Remove
-                          </button>
+                          <IconAction label="Remove" danger onClick={() => remove(m)}>
+                            <Icon.Trash className="h-4 w-4" />
+                          </IconAction>
                         )}
                       </div>
                     </td>
@@ -217,15 +253,22 @@ export default function Staff() {
         </>
       )}
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {ROLES.map((r) => (
-          <div key={r} className="card p-4">
-            <p className="text-sm font-medium text-white">{ROLE_INFO[r].label}</p>
-            <p className="mt-1 text-xs uppercase tracking-wider text-faint">{r}</p>
-            <p className="mt-2 text-xs text-muted">{ROLE_INFO[r].blurb}</p>
-          </div>
-        ))}
-      </div>
+      {/* Reference, not a control — folded away so the accounts themselves get
+          the room. */}
+      <details className="mt-6">
+        <summary className="cursor-pointer text-sm text-muted hover:text-cloud">
+          What each role can do
+        </summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {ROLES.map((r) => (
+            <div key={r} className="card p-4">
+              <p className="text-sm font-medium text-white">{ROLE_INFO[r].label}</p>
+              <p className="mt-1 text-xs uppercase tracking-wider text-faint">{r}</p>
+              <p className="mt-2 text-xs text-muted">{ROLE_INFO[r].blurb}</p>
+            </div>
+          ))}
+        </div>
+      </details>
 
       {creating && (
         <StaffModal

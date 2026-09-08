@@ -152,8 +152,21 @@ export function Layout() {
 
   const footer = (
     <div className="border-t border-ink-line p-4">
-      <p className="truncate text-sm font-medium text-cloud">{staff?.name}</p>
-      <p className="text-xs text-faint">{staff?.role}</p>
+      {/* Performance sits with the person's own name — it's about their work,
+          so this is where they'll look for it. */}
+      <NavLink
+        to="/metrics"
+        className="block truncate text-sm font-medium text-cloud transition-colors hover:text-white"
+      >
+        {staff?.name}
+      </NavLink>
+      <NavLink
+        to="/metrics"
+        className="inline-flex items-center gap-1 text-xs text-faint transition-colors hover:text-muted"
+      >
+        <Icon.Trend className="h-3 w-3" />
+        My performance
+      </NavLink>
       <button
         onClick={handleLogout}
         className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-danger"

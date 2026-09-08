@@ -12,6 +12,7 @@ import Customers from "@/pages/Customers";
 import Sms from "@/pages/Sms";
 import Delivery from "@/pages/Delivery";
 import StaffPage from "@/pages/Staff";
+import Metrics from "@/pages/Metrics";
 import Blog from "@/pages/Blog";
 import Faqs from "@/pages/Faqs";
 import Settings from "@/pages/Settings";
@@ -109,6 +110,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/metrics" element={<Metrics />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

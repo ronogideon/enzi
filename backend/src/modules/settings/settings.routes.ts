@@ -12,6 +12,7 @@ import {
   activePaymentProvider,
 } from "./settings.service";
 import { testKopokopoConnection, resetKopokopoToken } from "../payments/kopokopo.service";
+import { isOwnerOnlySetting, audit } from "../../lib/permissions";
 import { talkSasaBalance } from "../sms/talksasa.service";
 
 export const settingsRouter = Router();
@@ -69,7 +70,19 @@ settingsRouter.put(
     // client ever echoes the GET response into a PUT.
     if (asString.startsWith("••••")) throw new HttpError(400, "Masked value rejected");
 
+    // Payment credentials and the shop's public links stay with the owner —
+    // they move money and represent the brand publicly.
+    if (isOwnerOnlySetting(key) && req.auth!.role !== "SUPERADMIN")
+      throw new HttpError(403, "Only the owner can change payment keys and social links.");
+
     await setSetting(key, asString);
+    await audit(req.auth!, {
+      action: "settings.update",
+      entity: "setting",
+      entityId: key,
+      // The value itself is never logged — several of these are secrets.
+      summary: `Changed setting ${key}`,
+    });
     if (key.startsWith("kopokopo.")) resetKopokopoToken();
     res.json({ ok: true, key });
   })
@@ -89,10 +102,18 @@ settingsRouter.put(
       if (!(key in SETTING_DEFAULTS)) continue;
       const asString = raw === null || raw === undefined ? "" : String(raw).trim();
       if (asString.startsWith("••••")) continue; // unchanged secret — leave it alone
+      if (isOwnerOnlySetting(key) && req.auth!.role !== "SUPERADMIN")
+        throw new HttpError(403, "Only the owner can change payment keys and social links.");
       await setSetting(key, asString);
       if (key.startsWith("kopokopo.")) resetKopokopoToken();
       saved.push(key);
     }
+    if (saved.length)
+      await audit(req.auth!, {
+        action: "settings.update",
+        entity: "setting",
+        summary: `Changed ${saved.length} setting(s): ${saved.join(", ")}`,
+      });
     res.json({ ok: true, saved });
   })
 );

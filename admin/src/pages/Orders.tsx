@@ -22,6 +22,7 @@ const FILTERS: { key: string; label: string; countKey?: string }[] = [
 ];
 
 const STATUS_LABEL: Record<string, string> = {
+  RETURNED: "returned",
   PENDING_PAYMENT: "awaiting payment",
   CONFIRMED: "ready to pack",
   PROCESSING: "being packed",
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 /** What the button should say, in shop language. */
 const ACTION_LABEL: Record<string, string> = {
+  RETURNED: "Mark as returned",
   CONFIRMED: "Confirm order",
   PROCESSING: "Start packing",
   PACKED: "Mark as packed",
@@ -47,7 +49,7 @@ const ACTION_LABEL: Record<string, string> = {
 function statusTone(s: string): "green" | "gold" | "danger" | "muted" | "indigo" {
   if (s === "DELIVERED") return "green";
   if (s === "CONFIRMED") return "green";
-  if (s === "CANCELLED" || s === "REFUNDED") return "danger";
+  if (s === "CANCELLED" || s === "REFUNDED" || s === "RETURNED") return "danger";
   if (s === "PENDING_PAYMENT" || s === "PACKED") return "gold";
   if (s === "DISPATCHED") return "indigo";
   return "muted";
@@ -414,6 +416,45 @@ function OrderModal({
                     {ACTION_LABEL[n] ?? n}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Refunds move money, so they're requested and then approved by
+                someone else — never done in a single click. */}
+            {order.isPaid && order.status !== "REFUNDED" && (
+              <div className="mt-4 rounded-xl border border-ink-line p-4">
+                {order.refundApprovedAt ? (
+                  <p className="text-sm text-muted">Refund approved.</p>
+                ) : order.refundRequestedAt ? (
+                  <>
+                    <p className="text-sm text-gold">
+                      Refund requested{order.refundReason ? `: ${order.refundReason}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-faint">
+                      Needs approval from someone other than whoever asked. A manager's
+                      request has to go to the owner.
+                    </p>
+                    <button
+                      className="btn-primary mt-3 text-sm"
+                      disabled={busy}
+                      onClick={() => act(() => api.approveRefund(orderId))}
+                    >
+                      Approve refund
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="btn-ghost text-sm"
+                    disabled={busy}
+                    onClick={() => {
+                      const reason = prompt("Why is this being refunded?") ?? undefined;
+                      if (reason === undefined) return;
+                      act(() => api.requestRefund(orderId, reason));
+                    }}
+                  >
+                    Request refund
+                  </button>
+                )}
               </div>
             )}
 

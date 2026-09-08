@@ -1,54 +1,80 @@
-# Deploy checklist — Enzi v0.5.3
+# Deploy checklist — Enzi v0.6.0 — Roles, returns & accountability
 
-No schema change. Redeploy admin and storefront.
+**Schema change.** Run `npm run db:push` after deploying the backend.
 
 ---
 
-## Quantities now survive a colour switch
+## Who sees money
 
-This was the important one. Switching colour remounted the selector and wiped
-whatever had been typed — punishing exactly the shopper your pricing rewards,
-since wholesale is earned *across* colours.
+Shop floor and customer care no longer receive revenue, order totals or item
+prices **from the API at all** — not hidden in the UI, simply not sent, so it
+can't leak from a browser left open at the counter. They see the orders, the
+customer's name and phone, the items and quantities: everything needed to pack
+and send.
 
-Now:
+Managers and the owner see everything, as before.
 
-- Quantities are held for **every colour at once**. Put 60 into Black, switch to
-  Pink, add 60 more, and add them all in one go.
-- Each colour chip carries a **green bubble** showing how many pieces are
-  pending against it, so nothing looks lost when you switch.
-- **Add to cart** stays enabled while any colour has a selection, and adds the
-  whole lot together.
-- The running total counts **across colours and by size**, so 60 Black + 60 Pink
-  of one size correctly reaches a 100 threshold and prices at wholesale on the
-  page — matching what the cart will charge.
+## Fulfilment authority
 
-## Size rows use the width
+| Action | Who |
+|---|---|
+| Confirm → packing → packed → **out for delivery** | Everyone |
+| **Mark delivered** | Customer care, manager, owner |
+| **Mark returned** | Everyone |
+| Cancel | Manager, owner |
+| **Refund** | Requested by anyone, **approved by someone else** |
 
-Size, price and the quantity stepper now sit on **one line** at every screen
-size, and the rows are shorter. On a phone the size name was taking a line of
-its own with the price and stepper beneath, wasting the full width.
+**Refunds now need two people.** Anyone can request one with a reason; a manager
+approves it — unless the request came *from* a manager, in which case only the
+owner can. Self-approval is blocked outright. Nothing is refunded until approved.
 
-## Admin: nothing cut off at 100%
+## Returns
 
-The sidebar is now a **narrow rail of icons** that expands to the full menu when
-your pointer approaches it. It's an overlay with a fixed-width spacer, so
-expanding never shifts the page — the product table keeps every pixel, gaining
-about 11rem. That's the difference between fitting at 100% zoom and not.
+New status. Any staff member can mark an order returned, and **stock goes back
+on the shelf automatically**, per size and colour. A return is separate from a
+refund: goods coming back doesn't move money until a refund is approved.
 
-## Dividers around expanded sizes
+## Performance
 
-- The full horizontal rule now closes the **whole listing**, after its sizes.
-- Sizes are separated by **faint** lines between themselves.
-- A collapsed listing keeps its divider exactly as before.
+New **Performance** page, reached from your own name in the sidebar. Measured in
+work — orders packed, sent, returned — with a per-day bar chart. Deliberately no
+money, so the whole team can use it.
+
+Everyone sees themselves and their colleagues. **Only the owner sees the
+owner's.**
+
+## Accountability
+
+Every significant change is recorded against whoever made it: promotions
+started, settings changed, staff created, orders advanced, refunds requested and
+approved. Managers see the team's activity; **the owner also sees managers'** —
+which is the point.
+
+The log is on the Performance page under "Recent changes". Values of secrets are
+never recorded, only that the key changed.
+
+## Owner-only settings
+
+Managers can no longer change **payment keys or social links** — those are the
+owner's. Enforced on the server, so it isn't just a hidden button.
+
+## Smaller things
+
+- **Staff page** uses icon actions and a compact table; the role cards are
+  folded into "What each role can do" so the accounts get the room.
+- **Mobile storefront**: the cart icon now sits beside the menu button, with its
+  count badge — no more opening the menu to reach the cart.
 
 ---
 
 ## Worth checking
 
-- [ ] Product page: enter 50 in Black, switch to Pink → the Black chip shows a
-      "50" bubble and the numbers are still there when you switch back.
-- [ ] Enter 60 Black + 60 Pink of the same size with a 100 minimum → the total
-      shows the wholesale rate, and the cart agrees.
-- [ ] Phone: size, price and stepper on one line.
-- [ ] Admin at 100% zoom: full table visible; sidebar expands on hover.
-- [ ] Expand a listing: faint lines between sizes, solid rule under the last one.
+- [ ] Sign in as a STAFF account: no revenue on the dashboard, no prices on
+      orders, and "Mark delivered" is absent.
+- [ ] As STAFF, mark an order returned → stock goes back up on that size.
+- [ ] Request a refund as one account, approve as another; try approving your
+      own request and confirm it's refused.
+- [ ] Owner: open Performance → see the team plus "Recent changes".
+- [ ] Manager: confirm the owner's figures are not listed.
+- [ ] Manager: try changing an M-Pesa key → refused.
+- [ ] Phone: cart icon beside the menu, with the item count.

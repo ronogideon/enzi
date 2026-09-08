@@ -219,14 +219,32 @@ export function Header({ categories }: { categories: Category[] }) {
           </div>
         </form>
 
-        {/* mobile toggle */}
-        <button
-          onClick={() => setMobileOpen((v) => !v)}
-          className="ml-auto grid h-10 w-10 place-items-center rounded-full border border-ink-line lg:hidden"
-          aria-label="Menu"
-        >
-          ☰
-        </button>
+        {/* Mobile controls. Cart sits beside the menu rather than inside it:
+            it's the one destination a shopper reaches for repeatedly, and
+            burying it behind a menu tap costs conversions. */}
+        <div className="ml-auto flex items-center gap-2 lg:hidden">
+          <Link
+            href="/cart"
+            aria-label={count > 0 ? `Cart, ${count} items` : "Cart"}
+            className="relative grid h-10 w-10 place-items-center rounded-full border border-ink-line transition-colors active:bg-ink-hover"
+          >
+            <Icon.Cart className="h-[18px] w-[18px]" />
+            {count > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                {count}
+              </span>
+            )}
+          </Link>
+
+          <button
+            onClick={() => setMobileOpen((v) => !v)}
+            className="grid h-10 w-10 place-items-center rounded-full border border-ink-line transition-colors active:bg-ink-hover"
+            aria-label="Menu"
+            aria-expanded={mobileOpen}
+          >
+            <Icon.Menu className="h-[18px] w-[18px]" />
+          </button>
+        </div>
       </div>
 
       {/* mobile drawer */}

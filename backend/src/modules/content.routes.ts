@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { HttpError } from "../middleware/error";
 import { requireStaff, requireRole } from "../middleware/auth";
+import { audit } from "../lib/permissions";
 
 const wrap =
   (fn: (req: any, res: any) => Promise<any>) =>
@@ -412,7 +413,16 @@ promotionsRouter.post(
         endsAt: z.coerce.date().optional(),
       })
       .parse(req.body);
-    res.status(201).json(await prisma.promotion.create({ data }));
+
+    const promo = await prisma.promotion.create({ data });
+    // The owner should be able to see which manager started a promotion.
+    await audit(req.auth!, {
+      action: "promotion.create",
+      entity: "promotion",
+      entityId: promo.id,
+      summary: `Started promotion "${data.name}" (${data.type} ${data.value})`,
+    });
+    res.status(201).json(promo);
   })
 );
 promotionsRouter.patch(

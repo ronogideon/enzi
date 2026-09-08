@@ -123,9 +123,14 @@ export interface OrderEvent {
 
 export type OrderStatus =
   | "DRAFT" | "PENDING_PAYMENT" | "CONFIRMED" | "PROCESSING" | "PACKED"
-  | "DISPATCHED" | "DELIVERED" | "CANCELLED" | "REFUNDED";
+  | "DISPATCHED" | "DELIVERED" | "RETURNED" | "CANCELLED" | "REFUNDED";
 
 export interface Order {
+  refundRequestedById?: string | null;
+  refundRequestedAt?: string | null;
+  refundReason?: string | null;
+  refundApprovedAt?: string | null;
+  returnedAt?: string | null;
   id: string; orderNumber: string; status: OrderStatus; tier: Tier;
   subtotal: number; deliveryFee: number; total: number;
   isPaid: boolean; isPayOnDelivery: boolean; createdAt: string;
@@ -172,6 +177,7 @@ export interface SmsCampaign {
 }
 
 export interface StatsOverview {
+  showMoney?: boolean;
   revenueTotal: number; revenueThisMonth: number; revenueLastMonth: number;
   revenueToday: number; revenueChangePct: number | null;
   orders: number; ordersToday: number; openOrders: number;

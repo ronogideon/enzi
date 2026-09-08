@@ -5,8 +5,58 @@ import { hashPassword, verifyPassword } from "../../lib/password";
 import { HttpError } from "../../middleware/error";
 import { requireStaff, requireRole } from "../../middleware/auth";
 import { normalizePhone } from "../../lib/phone";
+import { canViewMetricsOf, audit } from "../../lib/permissions";
 
 export const staffRouter = Router();
+
+/**
+ * Performance figures.
+ *
+ * Deliberately about work done, not money taken: orders packed, dispatched and
+ * returned. That's what a shop-floor account controls, and it means the metrics
+ * screen carries nothing a non-manager shouldn't see.
+ */
+async function metricsFor(staffId: string, days: number) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const [packed, dispatched, events] = await Promise.all([
+    prisma.order.count({ where: { packedById: staffId, packedAt: { gte: since } } }),
+    prisma.orderEvent.count({
+      where: { staffId, toStatus: "DISPATCHED", createdAt: { gte: since } },
+    }),
+    prisma.orderEvent.findMany({
+      where: { staffId, createdAt: { gte: since } },
+      select: { toStatus: true, createdAt: true },
+    }),
+  ]);
+
+  const byStatus: Record<string, number> = {};
+  for (const e of events) if (e.toStatus) byStatus[e.toStatus] = (byStatus[e.toStatus] ?? 0) + 1;
+
+  // Activity per day, so a quiet week is visible as a shape rather than a
+  // single number that hides it.
+  const daily = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setDate(since.getDate() + i);
+    daily.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const e of events) {
+    const key = e.createdAt.toISOString().slice(0, 10);
+    if (daily.has(key)) daily.set(key, (daily.get(key) ?? 0) + 1);
+  }
+
+  return {
+    days,
+    packed,
+    dispatched,
+    returned: byStatus.RETURNED ?? 0,
+    delivered: byStatus.DELIVERED ?? 0,
+    actions: events.length,
+    daily: [...daily.entries()].map(([date, count]) => ({ date, count })),
+  };
+}
 
 const wrap =
   (fn: (req: any, res: any) => Promise<any>) =>
@@ -50,6 +100,33 @@ staffRouter.get(
   })
 );
 
+/**
+ * The activity log. Managers see the team's changes; the owner additionally
+ * sees managers' — which is the point of recording them.
+ */
+staffRouter.get(
+  "/activity",
+  requireRole("SUPERADMIN", "ADMIN"),
+  wrap(async (req, res) => {
+    const take = Math.min(parseInt(String(req.query.take ?? "60"), 10) || 60, 200);
+    const viewerRole = req.auth!.role;
+
+    const entries = await prisma.auditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      include: { staff: { select: { id: true, name: true, role: true } } },
+    });
+
+    // A manager shouldn't be reading the owner's actions.
+    const visible =
+      viewerRole === "SUPERADMIN"
+        ? entries
+        : entries.filter((e) => e.staffRole !== "SUPERADMIN");
+
+    res.json(visible);
+  })
+);
+
 /** Whoever is holding this token — used by the admin app on boot. */
 staffRouter.get(
   "/me",
@@ -61,6 +138,41 @@ staffRouter.get(
     });
     if (!me || !me.active) throw new HttpError(401, "Account is no longer active");
     res.json(me);
+  })
+);
+
+/**
+ * Metrics for the team. Everyone sees themselves and their colleagues; only
+ * the owner sees the owner's, so the hierarchy doesn't invert.
+ */
+staffRouter.get(
+  "/metrics",
+  requireStaff,
+  wrap(async (req, res) => {
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? "30"), 10) || 30, 7), 90);
+    const viewerRole = req.auth!.role;
+
+    const team = await prisma.staffUser.findMany({
+      where: { active: true },
+      select: { id: true, name: true, role: true },
+      orderBy: { name: "asc" },
+    });
+
+    const visible = team.filter((t) =>
+      canViewMetricsOf(viewerRole, t.role, t.id === req.auth!.sub)
+    );
+
+    const rows = await Promise.all(
+      visible.map(async (t) => ({
+        id: t.id,
+        name: t.name,
+        role: t.role,
+        isSelf: t.id === req.auth!.sub,
+        ...(await metricsFor(t.id, days)),
+      }))
+    );
+
+    res.json({ days, staff: rows });
   })
 );
 
@@ -123,6 +235,14 @@ staffRouter.post(
       },
       select: SAFE,
     });
+
+    await audit(req.auth!, {
+      action: "staff.create",
+      entity: "staff",
+      entityId: staff.id,
+      summary: `Created ${body.role} account for ${staff.name} (${staff.email})`,
+    });
+
     res.status(201).json(staff);
   })
 );

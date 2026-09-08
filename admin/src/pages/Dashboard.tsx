@@ -23,6 +23,9 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" subtitle="Business at a glance" />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Money only renders for roles the API sends it to — the fields are
+            simply absent for shop floor and support. */}
+        {s.showMoney !== false && (
         <StatCard
           label="Revenue this month"
           value={formatKes(s.revenueThisMonth)}
@@ -32,10 +35,19 @@ export default function Dashboard() {
               : `${s.revenueChangePct >= 0 ? "+" : ""}${s.revenueChangePct}% vs last month`
           }
         />
+        )}
         <StatCard
           label="Today"
-          value={formatKes(s.revenueToday)}
-          sub={`${s.ordersToday} order${s.ordersToday === 1 ? "" : "s"} today`}
+          value={
+            s.showMoney !== false
+              ? formatKes(s.revenueToday)
+              : `${s.ordersToday} order${s.ordersToday === 1 ? "" : "s"}`
+          }
+          sub={
+            s.showMoney !== false
+              ? `${s.ordersToday} order${s.ordersToday === 1 ? "" : "s"} today`
+              : "placed today"
+          }
         />
         <StatCard
           label="Orders to pack"

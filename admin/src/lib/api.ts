@@ -1,5 +1,5 @@
 import type {
-  Staff, StaffMember, Category, Product, Promotion, DeliveryMethod, Order,
+  Role, Staff, StaffMember, Category, Product, Promotion, DeliveryMethod, Order,
   Customer, StockAudit, SmsCampaign, StatsOverview, SettingsMap, UploadedImage,
   BlogPost, Faq, DeliveryZone, ProductVariant,
 } from "./types";
@@ -234,6 +234,29 @@ export const api = {
     req<StaffMember>(`/staff/${id}`, { method: "PATCH", body }),
   resetStaffPassword: (id: string, password: string) =>
     req<{ ok: boolean }>(`/staff/${id}/password`, { method: "POST", body: { password } }),
+  staffMetrics: (days = 30) =>
+    req<{
+      days: number;
+      staff: {
+        id: string; name: string; role: Role; isSelf: boolean;
+        packed: number; dispatched: number; returned: number; delivered: number;
+        actions: number; daily: { date: string; count: number }[];
+      }[];
+    }>(`/staff/metrics?days=${days}`),
+
+  activityLog: (take = 60) =>
+    req<
+      {
+        id: string; staffName: string | null; staffRole: string | null;
+        action: string; summary: string; createdAt: string;
+      }[]
+    >(`/staff/activity?take=${take}`),
+
+  requestRefund: (orderId: string, reason?: string) =>
+    req<Order>(`/orders/${orderId}/refund/request`, { method: "POST", body: { reason } }),
+  approveRefund: (orderId: string) =>
+    req<Order>(`/orders/${orderId}/refund/approve`, { method: "POST" }),
+
   deleteStaff: (id: string) =>
     req<{ ok: boolean; deactivated?: boolean }>(`/staff/${id}`, { method: "DELETE" }),
 

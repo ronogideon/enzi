@@ -34,6 +34,7 @@ enum OrderStatus {
   PACKED
   DISPATCHED
   DELIVERED
+  RETURNED // came back to us; stock restored
   CANCELLED
   REFUNDED
 }
@@ -109,6 +110,7 @@ model StaffUser {
   smsCampaigns  SmsCampaign[]
   packedOrders  Order[]        @relation("PackedBy")
   orderEvents   OrderEvent[]
+  auditLogs     AuditLog[]
 }
 
 // ----------------------------------------------------------------------------
@@ -428,6 +430,16 @@ model Order {
   trackingRef   String?     // waybill / matatu parcel no. / Mtaani agent code
   staffNotes    String?     @db.Text
 
+  /// Refunds need a second pair of eyes: whoever asks can't be the one who
+  /// approves. If the requester is an ADMIN, only a SUPERADMIN can sign it off.
+  refundRequestedById String?
+  refundRequestedAt   DateTime?
+  refundReason        String?
+  refundApprovedById  String?
+  refundApprovedAt    DateTime?
+
+  returnedAt    DateTime?
+
   placedAt    DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -461,6 +473,30 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+/// Who changed what, so a supervisor can answer "who did this?" without
+/// guessing. Deliberately append-only and never edited: an audit trail you can
+/// rewrite is not an audit trail.
+model AuditLog {
+  id         String     @id @default(cuid())
+  staffId    String?
+  staff      StaffUser? @relation(fields: [staffId], references: [id])
+  /// Snapshot of who did it, so the entry still reads correctly after an
+  /// account is renamed or removed.
+  staffName  String?
+  staffRole  String?
+  /// "promotion.create", "settings.update", "order.refund" …
+  action     String
+  entity     String?
+  entityId   String?
+  summary    String
+  meta       Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([staffId])
+  @@index([action])
 }
 
 /// Append-only fulfilment history, so you can always answer "who marked this

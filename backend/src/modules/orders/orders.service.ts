@@ -4,6 +4,7 @@ import { env } from "../../config/env";
 import { HttpError } from "../../middleware/error";
 import { normalizePhone, isValidKePhone } from "../../lib/phone";
 import { priceCart, CartLineInput } from "../cart/cart.service";
+import { canMarkDelivered, canApproveRefund, audit } from "../../lib/permissions";
 
 export interface PlaceOrderInput {
   phone: string;
@@ -260,12 +261,30 @@ const NEXT: Partial<Record<OrderStatus, OrderStatus[]>> = {
   CONFIRMED: ["PROCESSING", "PACKED", "CANCELLED"],
   PROCESSING: ["PACKED", "CANCELLED"],
   PACKED: ["DISPATCHED", "DELIVERED", "CANCELLED"],
-  DISPATCHED: ["DELIVERED"],
-  DELIVERED: ["REFUNDED"],
+  DISPATCHED: ["DELIVERED", "RETURNED"],
+  DELIVERED: ["RETURNED", "REFUNDED"],
+  RETURNED: ["REFUNDED"],
 };
 
 export function nextStatuses(from: OrderStatus): OrderStatus[] {
   return NEXT[from] ?? [];
+}
+
+/**
+ * The same graph, filtered to what this role may actually do.
+ *
+ * Shop floor takes an order to "out for delivery" and can record a return, but
+ * confirming delivery and approving a refund sit with someone else — the person
+ * who packed it shouldn't be the one closing it out unwitnessed.
+ */
+export function nextStatusesForRole(from: OrderStatus, role: string): OrderStatus[] {
+  return nextStatuses(from).filter((to) => {
+    if (to === "DELIVERED") return canMarkDelivered(role);
+    // Refunds are requested, not set directly — see requestRefund/approveRefund.
+    if (to === "REFUNDED") return false;
+    if (to === "CANCELLED") return role === "SUPERADMIN" || role === "ADMIN";
+    return true;
+  });
 }
 
 /**
@@ -277,10 +296,17 @@ export async function advanceStatus(
   orderId: string,
   to: OrderStatus,
   staffId?: string,
-  note?: string
+  note?: string,
+  role?: string
 ) {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order) throw new HttpError(404, "Order not found");
+
+  if (to === "DELIVERED" && role && !canMarkDelivered(role))
+    throw new HttpError(
+      403,
+      "Only customer care, a manager or the owner can mark an order delivered."
+    );
 
   const allowed = nextStatuses(order.status as OrderStatus);
   if (!allowed.includes(to))
@@ -292,7 +318,12 @@ export async function advanceStatus(
     );
 
   if (to === "CANCELLED") return cancelOrder(orderId, staffId, note);
-  if (to === "REFUNDED") return refundOrder(orderId, staffId, note);
+  if (to === "RETURNED") return returnOrder(orderId, staffId, note);
+  if (to === "REFUNDED")
+    throw new HttpError(
+      400,
+      "Refunds have to be requested and then approved — use the refund action."
+    );
 
   // Confirming an unpaid, non-POD order means it was settled off-platform.
   if (order.status === "PENDING_PAYMENT" && to === "CONFIRMED" && !order.isPaid)
@@ -379,6 +410,133 @@ export async function cancelOrder(orderId: string, staffId?: string, note?: stri
       data: { status: OrderStatus.CANCELLED },
     });
   });
+}
+
+/**
+ * Record a return and put the goods back on the shelf.
+ *
+ * Any staff member can do this — returns arrive at whoever is on the floor, and
+ * making them wait for a manager just means the stock stays wrong. The money
+ * side is separate: a return doesn't refund anything until a refund is approved.
+ */
+export async function returnOrder(orderId: string, staffId?: string, note?: string) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) throw new HttpError(404, "Order not found");
+    if (order.status === "RETURNED") return order;
+
+    for (const item of order.items) {
+      if (item.variantId) {
+        await tx.productVariant.update({
+          where: { id: item.variantId },
+          data: { stockQty: { increment: item.quantity } },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQty: { increment: item.quantity } },
+        });
+      }
+      await tx.stockMovement.create({
+        data: {
+          productId: item.productId,
+          delta: item.quantity,
+          reason: "RETURN",
+          refId: order.id,
+          note: item.variantLabel
+            ? `returned — ${item.variantLabel}`
+            : "returned",
+        },
+      });
+    }
+
+    await tx.orderEvent.create({
+      data: {
+        orderId,
+        staffId,
+        fromStatus: order.status,
+        toStatus: "RETURNED",
+        note: note ?? "Returned — stock restored",
+      },
+    });
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.RETURNED, returnedAt: new Date() },
+    });
+  });
+}
+
+/** Raise a refund request. Approval is a separate, second-person action. */
+export async function requestRefund(orderId: string, staffId: string, reason?: string) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) throw new HttpError(404, "Order not found");
+  if (order.status === "REFUNDED") throw new HttpError(400, "This order is already refunded");
+  if (order.refundRequestedById && !order.refundApprovedAt)
+    throw new HttpError(400, "A refund has already been requested for this order");
+
+  await prisma.orderEvent.create({
+    data: {
+      orderId,
+      staffId,
+      note: `Refund requested${reason ? `: ${reason}` : ""}`,
+    },
+  });
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: {
+      refundRequestedById: staffId,
+      refundRequestedAt: new Date(),
+      refundReason: reason ?? null,
+      refundApprovedById: null,
+      refundApprovedAt: null,
+    },
+  });
+}
+
+/** Approve a pending refund. Enforces who may sign off on whose request. */
+export async function approveRefund(
+  orderId: string,
+  approver: { sub: string; role: string }
+) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) throw new HttpError(404, "Order not found");
+  if (!order.refundRequestedById)
+    throw new HttpError(400, "No refund has been requested for this order");
+  if (order.refundApprovedAt) throw new HttpError(400, "This refund is already approved");
+
+  const requester = await prisma.staffUser.findUnique({
+    where: { id: order.refundRequestedById },
+    select: { role: true, id: true, name: true },
+  });
+
+  const verdict = canApproveRefund(
+    approver.role,
+    requester?.role,
+    approver.sub,
+    order.refundRequestedById
+  );
+  if (!verdict.ok) throw new HttpError(403, verdict.reason ?? "Not allowed");
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { refundApprovedById: approver.sub, refundApprovedAt: new Date() },
+  });
+
+  await audit(approver, {
+    action: "order.refund.approve",
+    entity: "order",
+    entityId: orderId,
+    summary: `Approved refund on ${order.orderNumber}${
+      requester?.name ? ` (requested by ${requester.name})` : ""
+    }`,
+  });
+
+  return refundOrder(orderId, approver.sub, "Refund approved");
 }
 
 export async function refundOrder(orderId: string, staffId?: string, note?: string) {

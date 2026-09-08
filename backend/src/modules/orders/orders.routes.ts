@@ -9,8 +9,12 @@ import {
   advanceStatus,
   loadOrder,
   nextStatuses,
+  nextStatusesForRole,
   markOrderPaid,
+  requestRefund,
+  approveRefund,
 } from "./orders.service";
+import { stripMoney, canSeeMoney, audit } from "../../lib/permissions";
 import { OrderStatus } from "@prisma/client";
 
 export const ordersRouter = Router();
@@ -195,6 +199,15 @@ ordersRouter.get(
       ];
     }
 
+    // Shop floor and support see the last month — enough to pack, chase and
+    // answer for recent work, without the whole ledger being on screen.
+    const role = req.auth!.role;
+    if (!canSeeMoney(role)) {
+      const since = new Date();
+      since.setMonth(since.getMonth() - 1);
+      where.createdAt = { gte: since };
+    }
+
     const orders = await prisma.order.findMany({
       where,
       include: {
@@ -207,7 +220,8 @@ ordersRouter.get(
       orderBy: { createdAt: "desc" },
       take: Math.min(parseInt(take ?? "100", 10) || 100, 300),
     });
-    res.json(orders);
+
+    res.json(orders.map((o) => stripMoney(o as any, role)));
   })
 );
 
@@ -234,7 +248,11 @@ ordersRouter.get(
   wrap(async (req, res) => {
     const order = await loadOrder(req.params.id);
     if (!order) throw new HttpError(404, "Order not found");
-    res.json({ ...order, nextStatuses: nextStatuses(order.status) });
+    const role = req.auth!.role;
+    res.json({
+      ...stripMoney(order as any, role),
+      nextStatuses: nextStatusesForRole(order.status, role),
+    });
   })
 );
 
@@ -246,9 +264,18 @@ ordersRouter.post(
     const { to, note } = z
       .object({ to: z.nativeEnum(OrderStatus), note: z.string().max(500).optional() })
       .parse(req.body);
-    await advanceStatus(req.params.id, to, req.auth!.sub, note);
+    await advanceStatus(req.params.id, to, req.auth!.sub, note, req.auth!.role);
     const order = await loadOrder(req.params.id);
-    res.json({ ...order!, nextStatuses: nextStatuses(order!.status) });
+    await audit(req.auth!, {
+      action: `order.${to.toLowerCase()}`,
+      entity: "order",
+      entityId: req.params.id,
+      summary: `Marked ${order!.orderNumber} as ${to.toLowerCase().replace("_", " ")}`,
+    });
+    res.json({
+      ...stripMoney(order as any, req.auth!.role),
+      nextStatuses: nextStatusesForRole(order!.status, req.auth!.role),
+    });
   })
 );
 
@@ -309,6 +336,37 @@ ordersRouter.post(
     const result = await verifyPaymentWithGateway(payment.id);
     const fresh = await loadOrder(order.id);
     res.json({ ...result, order: fresh });
+  })
+);
+
+/** Ask for a refund. Approval is a separate action by someone else. */
+ordersRouter.post(
+  "/:id/refund/request",
+  requireStaff,
+  wrap(async (req, res) => {
+    const { reason } = z
+      .object({ reason: z.string().max(300).optional() })
+      .parse(req.body ?? {});
+    const order = await requestRefund(req.params.id, req.auth!.sub, reason);
+    await audit(req.auth!, {
+      action: "order.refund.request",
+      entity: "order",
+      entityId: order.id,
+      summary: `Requested a refund on ${order.orderNumber}${reason ? `: ${reason}` : ""}`,
+    });
+    const fresh = await loadOrder(order.id);
+    res.json(stripMoney(fresh as any, req.auth!.role));
+  })
+);
+
+/** Approve a pending refund. Who may do this depends on who asked. */
+ordersRouter.post(
+  "/:id/refund/approve",
+  requireStaff,
+  wrap(async (req, res) => {
+    await approveRefund(req.params.id, { sub: req.auth!.sub, role: req.auth!.role });
+    const fresh = await loadOrder(req.params.id);
+    res.json(stripMoney(fresh as any, req.auth!.role));
   })
 );
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma";
 import { requireStaff } from "../../middleware/auth";
+import { canSeeMoney } from "../../lib/permissions";
 
 export const statsRouter = Router();
 
@@ -12,7 +13,7 @@ const wrap =
 statsRouter.get(
   "/overview",
   requireStaff,
-  wrap(async (_req, res) => {
+  wrap(async (_req: any, res) => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -71,14 +72,39 @@ statsRouter.get(
     const thisMonth = monthRevenueAgg._sum.total ?? 0;
     const lastMonth = lastMonthRevenueAgg._sum.total ?? 0;
 
+    const showMoney = canSeeMoney(_req.auth!.role);
+
+    // Shop floor and support get the work picture — how many orders, what's
+    // waiting to be packed — with none of the takings.
+    const money = showMoney
+      ? {
+          revenueTotal: revenueAgg._sum.total ?? 0,
+          revenueThisMonth: thisMonth,
+          revenueLastMonth: lastMonth,
+          revenueToday: todayRevenueAgg._sum.total ?? 0,
+          revenueChangePct:
+            lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : null,
+          topProducts: topItems.map((t) => ({
+            productId: t.productId,
+            name: t.name,
+            unitsSold: t._sum.quantity ?? 0,
+            revenue: t._sum.lineTotal ?? 0,
+          })),
+        }
+      : {
+          // Units still make sense to the floor; shillings don't.
+          topProducts: topItems.map((t) => ({
+            productId: t.productId,
+            name: t.name,
+            unitsSold: t._sum.quantity ?? 0,
+            revenue: 0,
+          })),
+        };
+
     res.json({
-      revenueTotal: revenueAgg._sum.total ?? 0,
-      revenueThisMonth: thisMonth,
-      revenueLastMonth: lastMonth,
-      revenueToday: todayRevenueAgg._sum.total ?? 0,
-      // Percentage change vs the same measure last month, null when there's
-      // no baseline (dividing by zero would render as a meaningless ∞%).
-      revenueChangePct: lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : null,
+      showMoney,
+      ...money,
+      _legacy: undefined,
       orders: orderCount,
       ordersToday: todayOrders,
       openOrders:
@@ -91,12 +117,6 @@ statsRouter.get(
       accountHolders,
       byStatus,
       lowStock,
-      topProducts: topItems.map((t) => ({
-        productId: t.productId,
-        name: t.name,
-        unitsSold: t._sum.quantity ?? 0,
-        revenue: t._sum.lineTotal ?? 0,
-      })),
     });
   })
 );
@@ -108,7 +128,8 @@ statsRouter.get(
 statsRouter.get(
   "/revenue-series",
   requireStaff,
-  wrap(async (req, res) => {
+  wrap(async (req: any, res) => {
+    if (!canSeeMoney(req.auth!.role)) return res.json([]);
     const days = Math.min(Math.max(parseInt(String(req.query.days ?? "30"), 10) || 30, 7), 180);
     const since = new Date();
     since.setHours(0, 0, 0, 0);
