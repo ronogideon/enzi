@@ -102,6 +102,9 @@ model StaffUser {
   role         Role      @default(STAFF)
   active       Boolean   @default(true)
   mustChangePassword Boolean @default(false)
+  /// Set when the password is reset. Sessions issued before this are rejected,
+  /// so a reset signs the account out everywhere else.
+  passwordChangedAt DateTime?
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -304,6 +307,8 @@ model Customer {
   name              String?
   email             String?
   passwordHash      String? // set once they create a login
+  /// Set when the password is reset — older sessions stop working.
+  passwordChangedAt DateTime?
   marketingConsent  Boolean  @default(true)
   tags              String[] // segmentation for SMS campaigns
   notes             String?  @db.Text
@@ -427,6 +432,9 @@ model Order {
   packedBy      StaffUser? @relation("PackedBy", fields: [packedById], references: [id])
   dispatchedAt  DateTime?
   deliveredAt   DateTime?
+  /// Last time the status changed. Drives the "Updated …" line on the live
+  /// status image in emails; updatedAt also moves on unrelated edits.
+  statusChangedAt DateTime?
   trackingRef   String?     // waybill / matatu parcel no. / Mtaani agent code
   staffNotes    String?     @db.Text
 
@@ -683,4 +691,37 @@ model Setting {
   /// the settings endpoint masks them to a last-4 preview.
   secret    Boolean  @default(false)
   updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// Password reset — one table for staff and customers
+// ----------------------------------------------------------------------------
+
+enum ResetSubject {
+  STAFF
+  CUSTOMER
+}
+
+enum ResetChannel {
+  EMAIL
+  SMS
+}
+
+/// A pending reset. Only hashes are stored: a database read can't be turned
+/// into a working reset link or code.
+model PasswordReset {
+  id          String       @id @default(cuid())
+  subjectType ResetSubject
+  subjectId   String
+  channel     ResetChannel
+  /// sha256 of the emailed token, or of subject:id:code for the SMS code.
+  tokenHash   String
+  attempts    Int          @default(0)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  ip          String?
+  createdAt   DateTime     @default(now())
+
+  @@index([tokenHash])
+  @@index([subjectType, subjectId, createdAt])
 }

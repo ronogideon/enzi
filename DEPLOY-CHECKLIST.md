@@ -1,79 +1,115 @@
-# Deploy checklist — Enzi v0.6.2
+# Deploy checklist — Enzi v0.7.0
 
-No schema change. Redeploy the **backend** and the **storefront** (the admin is
-version-only).
+**Schema change (additive).** Redeploy all three services, then run
+`npm run db:push` in the backend's Railway shell. Every new column is nullable
+and the new table is empty, so nothing existing is touched.
 
-The backend is not optional here: the storefront now needs each colour
-sibling's own prices, and the API wasn't sending them.
+Order matters: deploy the backend and run `db:push` before the frontends go
+out. Until the schema is pushed, signed-in requests answer with a "database is
+missing a column" error.
 
 ---
 
-## The counter emptied every time you changed colour
+## 1. Resend (do this first)
 
-The state that holds the quantities was already written to cover every colour.
-What emptied it was the colour switch itself: `pickColour` called
-`router.replace('/product/<slug>')`, which is a real navigation — Next
-re-renders the page's server component for the new slug and remounts the buy
-panel, and a remounted component starts from nothing. So typing 10 into Black
-and tapping Pink threw the 10 away, chip bubble and all.
+1. Resend → Domains → add `enzipackaging.com`, then add the DNS records it
+   gives you (DKIM, SPF, and the MX on the `send` subdomain).
+2. Add a DMARC record if you don't have one: `TXT _dmarc` → `v=DMARC1; p=none;`
+   Gmail sends mail from unauthenticated domains to spam.
+3. Resend → API Keys → create a key with **sending access** only.
 
-Colour switching now updates the address bar with `history.replaceState`. Same
-URL behaviour, no navigation, nothing unmounts. The selection stays.
+## 2. Railway variables — backend only
 
-## Add to cart takes everything, once
+| Variable | Value |
+|---|---|
+| `RESEND_API_KEY` | `re_…` (required) |
+| `PUBLIC_API_URL` | `https://api.enzipackaging.com` |
+| `STOREFRONT_URL` | `https://enzipackaging.com` |
+| `ADMIN_URL` | `https://dashboard.enzipackaging.com` — or the admin's Railway domain until the subdomain is live |
 
-One selection is held for the whole colour group, and one tap adds all of it:
+Optional: `EMAIL_FROM_ORDERS`, `EMAIL_FROM_ACCOUNT`, `EMAIL_REPLY_TO` (falls
+back to Settings → Store email), `TRACKING_SECRET` (derived from `JWT_SECRET`
+if unset).
 
-- Type quantities against Black's sizes, switch to Pink, type more there, tap
-  once. Every line goes into the cart together.
-- The button says what it will do — **Add 140 pcs to cart** — rather than
-  leaving it to be guessed.
-- The green bubble on each colour chip shows what is held against it, and the
-  running total names the part that is sitting in a colour you can't see.
-- Stickers and anything else without sizes work the same way now. Previously
-  that panel kept its own private quantity and only ever added the colour on
-  screen.
+The storefront and admin need nothing new. SMS uses the Talk Sasa settings you
+already have.
 
-The selection survives a reload or a trip to the cart and back — it's kept in
-`sessionStorage` per colour group, cleared once added, and anything that has
-sold out in the meantime is dropped rather than restored.
+The backend now declares `"engines": { "node": ">=20" }` — the Resend SDK needs
+Node 20. Railway reads this from package.json.
 
-## Prices on the page now match what the cart charges
+---
 
-Three things were quietly wrong, and all three could show a customer one number
-and charge another:
+## Order emails with a live status
 
-- **Sibling colours had no prices of their own.** The API sent a sibling's
-  photos, sizes and stock but not its price, so a sizeless colour listing was
-  priced from whichever colour's page you happened to be on. Fine while every
-  colour costs the same, wrong the day one doesn't.
-- **The wholesale tag counted one colour.** The cart qualifies wholesale across
-  colours of the same size and price; the page counted only what was on screen,
-  so it showed retail on an order the cart would have discounted. The page now
-  groups exactly as the cart does.
-- **The quantity boxes never re-read their value.** After adding to cart the
-  fields still showed the old numbers while the real quantity was zero.
+- **Confirmation** goes out when a pay-on-delivery order is placed, or when a
+  pay-first order's payment lands (M-Pesa, Kopo Kopo, or staff marking it paid).
+- **Updates** go out on Dispatched, Delivered, Cancelled and Refunded. Processing
+  and Packed only move the live status, to keep the inbox quiet. An order that
+  never got past Awaiting payment gets no cancellation email — the customer was
+  never told it existed.
+- The status card in every email is an image drawn fresh by the API each time
+  the email is opened, so a months-old email shows today's status. Tapping it
+  opens `/track/<id>/<signature>` on the storefront.
+- Customers without an email on file get nothing — email is optional at
+  checkout. All sending is in the background; a Resend failure can never fail a
+  checkout or a status change.
 
-## Sold-out sizeless products showed an Add to cart button
+**Where it isn't live:** Apple Mail with Mail Privacy Protection downloads
+images once when the email arrives, so those customers see the status as it was
+then. Desktop Outlook blocks images until allowed. Both still get the "Track
+your order" button.
 
-`AddToCartPanel` tested `product.stockQty <= 0`, but the public API strips stock
-counts, so the test read `undefined <= 0` — always false. It uses `inStock` now,
-which is the field the API actually sends.
+## Forgotten password — staff and customers
+
+- Storefront: **Sign in → Forgot password?** (`/account/reset-password`).
+  Admin: **Login → Forgot password?** (`/reset-password`).
+- One request sends a 30-minute link by email and a 10-minute 6-digit code by
+  SMS — whichever the account has. Either one works.
+- The response is identical whether or not the account exists. Each link or code
+  works once; a code locks after 5 wrong tries; 3 requests per account per
+  15 minutes; 10 per IP.
+- A completed reset signs the account out of every other session and sends a
+  "password changed" email and SMS.
+- Staff SMS only works if the staff member has a phone number on the Staff page.
+
+## Sessions now end when they should
+
+- Resetting a password ends every older session (staff and customers).
+- An admin resetting another staff member's password signs that person out.
+- **Deactivating a staff member now signs them out within 30 seconds.**
+  Previously they stayed in until their 8-hour token ran out.
+
+## Fixed: paying a pay-on-delivery order early
+
+Marking a POD order paid while it was already Packed or Dispatched threw it back
+to Confirmed, and counted it a second time in the customer's order count and
+total spent. It now keeps its status and is counted once.
 
 ---
 
 ## Worth checking
 
-- [ ] A product with colours **and** sizes: put 10 against a size in Black,
-      switch to Pink, put 10 against a size there. Black's chip still shows 10,
-      the total reads 20 pcs, the button says **Add 20 pcs to cart**.
-- [ ] Tap it once → both lines land in the cart, the fields go back to 0, and
-      the chip bubbles clear.
-- [ ] Reach a wholesale threshold across two colours (60 + 40 of one size) →
-      both rows show "wholesale", and the cart total agrees with the page.
-- [ ] A sticker (colours, no sizes): set 2 on Gold, switch to Black, set 2 →
-      the button offers 4 pcs and the cart gets both colours.
-- [ ] Switch colours a few times and check the URL follows, then reload → the
-      page opens on that colour with the selection intact.
-- [ ] Open a colour that is sold out → still not selectable; a sold-out sizeless
-      product now shows **Out of stock** instead of an active button.
+- [ ] Place a POD order with an email → confirmation arrives; the status card
+      reads "Order confirmed".
+- [ ] Move it to Packed in the admin, reopen the same email → card shows Packed.
+      No new email.
+- [ ] Mark it Dispatched with a tracking ref → "on its way" email with the ref.
+- [ ] Tap "Track your order" → storefront track page matches. Change one
+      character of the URL → 404.
+- [ ] Place an M-Pesa order, pay → confirmation arrives only after payment.
+- [ ] Storefront: Forgot password with a phone → SMS code arrives, reset works,
+      the old session on another browser is signed out on its next request.
+- [ ] Admin: Forgot password with your staff email → link arrives, opens the
+      admin reset page, new password works.
+- [ ] Deactivate a test staff account while it's signed in → it's sent to the
+      login screen within 30 seconds.
+- [ ] Mark a Dispatched POD order paid → it stays Dispatched.
+
+## Still open (not changed in this release)
+
+- `GET /api/orders/number/:orderNumber` and its `/receipt` are public and keyed
+  only on the sequential order number, so anyone can step through orders and
+  read names, phone numbers and payment callback data. Worth locking to the
+  signed tracking links or the signed-in customer.
+- Checkout sends an `idempotencyKey`, but `POST /api/orders` doesn't accept it,
+  so the duplicate-submit protection the schema was built for isn't active.

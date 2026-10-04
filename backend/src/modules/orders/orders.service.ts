@@ -5,6 +5,7 @@ import { HttpError } from "../../middleware/error";
 import { normalizePhone, isValidKePhone } from "../../lib/phone";
 import { priceCart, CartLineInput } from "../cart/cart.service";
 import { canMarkDelivered, canApproveRefund, audit } from "../../lib/permissions";
+import { onOrderConfirmed, onOrderStatusChanged } from "../notifications/order-emails";
 
 export interface PlaceOrderInput {
   phone: string;
@@ -161,6 +162,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         isPayOnDelivery: podAllowed,
         deliveryDetails: input.deliveryDetails,
         placedAt: new Date(),
+        statusChangedAt: new Date(),
         items: {
           create: cart.lines.map((l) => ({
             productId: l.productId,
@@ -221,33 +223,64 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     return created;
   });
 
+  // Pay-on-delivery orders are confirmed the moment they're placed. Pay-first
+  // orders get their confirmation from markOrderPaid once the money lands.
+  if (podAllowed) onOrderConfirmed(order.id);
+
   return { order: await loadOrder(order.id), requiresPayment: !podAllowed };
 }
 
-/** Called by the M-Pesa callback once a receipt is confirmed. */
+/**
+ * Called by the payment callbacks once a receipt is confirmed, and by staff
+ * recording an off-platform payment.
+ *
+ * Only an order that was waiting for payment moves to CONFIRMED. A
+ * pay-on-delivery order paid early (cash at the counter while it's already
+ * packed or dispatched) keeps its fulfilment status — it used to be thrown back
+ * to CONFIRMED, which also rewound the live status in the customer's emails.
+ * POD orders were already counted in the CRM when they were placed, so they
+ * aren't counted a second time here either.
+ */
 export async function markOrderPaid(orderId: string, note = "M-Pesa payment confirmed") {
-  return prisma.$transaction(async (tx) => {
+  let confirmedNow = false;
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new HttpError(404, "Order not found");
     if (order.isPaid) return order;
 
+    const awaitingPayment = order.status === "PENDING_PAYMENT" || order.status === "DRAFT";
     const updated = await tx.order.update({
       where: { id: orderId },
-      data: { isPaid: true, paidAt: new Date(), status: OrderStatus.CONFIRMED },
-    });
-    await tx.orderEvent.create({
-      data: { orderId, fromStatus: order.status, toStatus: "CONFIRMED", note },
-    });
-    await tx.customer.update({
-      where: { id: order.customerId },
       data: {
-        orderCount: { increment: 1 },
-        totalSpent: { increment: order.total },
-        lastOrderAt: new Date(),
+        isPaid: true,
+        paidAt: new Date(),
+        ...(awaitingPayment ? { status: OrderStatus.CONFIRMED, statusChangedAt: new Date() } : {}),
       },
     });
+    await tx.orderEvent.create({
+      data: {
+        orderId,
+        fromStatus: order.status,
+        toStatus: awaitingPayment ? "CONFIRMED" : order.status,
+        note,
+      },
+    });
+    if (!order.isPayOnDelivery) {
+      await tx.customer.update({
+        where: { id: order.customerId },
+        data: {
+          orderCount: { increment: 1 },
+          totalSpent: { increment: order.total },
+          lastOrderAt: new Date(),
+        },
+      });
+    }
+    confirmedNow = awaitingPayment;
     return updated;
   });
+
+  if (confirmedNow) onOrderConfirmed(orderId);
+  return result;
 }
 
 /**
@@ -329,7 +362,7 @@ export async function advanceStatus(
   if (order.status === "PENDING_PAYMENT" && to === "CONFIRMED" && !order.isPaid)
     return markOrderPaid(orderId, note ?? "Marked paid manually by staff");
 
-  const data: Prisma.OrderUpdateInput = { status: to };
+  const data: Prisma.OrderUpdateInput = { status: to, statusChangedAt: new Date() };
   if (to === "PACKED") {
     data.packedAt = new Date();
     if (staffId) data.packedBy = { connect: { id: staffId } };
@@ -348,12 +381,14 @@ export async function advanceStatus(
   await prisma.orderEvent.create({
     data: { orderId, staffId, fromStatus: order.status, toStatus: to, note },
   });
+  onOrderStatusChanged(orderId, order.status, to);
   return updated;
 }
 
 /** Cancel + restore stock. */
 export async function cancelOrder(orderId: string, staffId?: string, note?: string) {
-  return prisma.$transaction(async (tx) => {
+  let from: string | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { id: orderId },
       include: { items: true },
@@ -385,6 +420,8 @@ export async function cancelOrder(orderId: string, staffId?: string, note?: stri
       });
     }
 
+    from = order.status;
+
     // Roll back the CRM totals if this order had already counted.
     if (order.isPaid || order.isPayOnDelivery) {
       await tx.customer.update({
@@ -407,9 +444,11 @@ export async function cancelOrder(orderId: string, staffId?: string, note?: stri
     });
     return tx.order.update({
       where: { id: orderId },
-      data: { status: OrderStatus.CANCELLED },
+      data: { status: OrderStatus.CANCELLED, statusChangedAt: new Date() },
     });
   });
+  if (from) onOrderStatusChanged(orderId, from, "CANCELLED");
+  return result;
 }
 
 /**
@@ -465,7 +504,7 @@ export async function returnOrder(orderId: string, staffId?: string, note?: stri
 
     return tx.order.update({
       where: { id: orderId },
-      data: { status: OrderStatus.RETURNED, returnedAt: new Date() },
+      data: { status: OrderStatus.RETURNED, returnedAt: new Date(), statusChangedAt: new Date() },
     });
   });
 }
@@ -540,9 +579,11 @@ export async function approveRefund(
 }
 
 export async function refundOrder(orderId: string, staffId?: string, note?: string) {
-  return prisma.$transaction(async (tx) => {
+  let from: string | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new HttpError(404, "Order not found");
+    from = order.status;
 
     await tx.payment.updateMany({
       where: { orderId, status: "PAID" },
@@ -563,7 +604,9 @@ export async function refundOrder(orderId: string, staffId?: string, note?: stri
     });
     return tx.order.update({
       where: { id: orderId },
-      data: { status: OrderStatus.REFUNDED, isPaid: false },
+      data: { status: OrderStatus.REFUNDED, isPaid: false, statusChangedAt: new Date() },
     });
   });
+  if (from) onOrderStatusChanged(orderId, from, "REFUNDED");
+  return result;
 }

@@ -6,7 +6,7 @@ import { encryptStoredSecrets } from "./modules/settings/settings.service";
 const app = createApp();
 
 app.listen(env.port, "0.0.0.0", async () => {
-  console.log(`[enzi] v0.6.2 listening on :${env.port} (${env.nodeEnv})`);
+  console.log(`[enzi] v0.7.0 listening on :${env.port} (${env.nodeEnv})`);
   console.log(
     `[enzi] CORS: ${
       env.corsOrigins.length
@@ -19,6 +19,19 @@ app.listen(env.port, "0.0.0.0", async () => {
     console.warn("[enzi] WARNING: DATABASE_URL is not set — every query will fail.");
   if (!process.env.JWT_SECRET)
     console.warn("[enzi] WARNING: JWT_SECRET is not set — using the dev fallback.");
+  if (!process.env.RESEND_API_KEY)
+    console.warn("[enzi] RESEND_API_KEY is not set — order and password emails will be skipped.");
+  if (env.nodeEnv === "production") {
+    if (!process.env.PUBLIC_API_URL)
+      console.warn(
+        `[enzi] PUBLIC_API_URL is not set — email status images will use ${env.urls.api}. ` +
+          "Set it to your custom API domain so old emails keep working if the Railway domain changes."
+      );
+    if (!process.env.ADMIN_URL)
+      console.warn("[enzi] ADMIN_URL is not set — staff password-reset links will point at localhost.");
+    if (!process.env.STOREFRONT_URL)
+      console.warn(`[enzi] STOREFRONT_URL is not set — using ${env.urls.storefront}.`);
+  }
 
   // Guarantees there is always a way into the admin dashboard. Failure here
   // must never stop the server booting — the API is still useful, and the

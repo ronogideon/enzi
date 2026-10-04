@@ -9,6 +9,8 @@ import { stockRouter } from "./modules/stock/stock.routes";
 import { statsRouter } from "./modules/stats/stats.routes";
 import { smsRouter } from "./modules/sms/sms.routes";
 import { settingsRouter } from "./modules/settings/settings.routes";
+import { passwordResetRouter } from "./modules/auth/password-reset.routes";
+import { trackingRouter } from "./modules/notifications/tracking.routes";
 import {
   categoriesRouter,
   deliveryRouter,
@@ -21,7 +23,10 @@ import {
 
 export const api = Router();
 
+api.use("/auth/customer/password", passwordResetRouter("CUSTOMER"));
+api.use("/auth/staff/password", passwordResetRouter("STAFF"));
 api.use("/auth", authRouter);
+api.use("/track", trackingRouter);
 api.use("/staff", staffRouter);
 api.use("/products", productsRouter);
 api.use("/media", mediaRouter);

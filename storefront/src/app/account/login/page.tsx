@@ -57,7 +57,12 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="label">Password</label>
+            <div className="flex items-baseline justify-between">
+              <label className="label">Password</label>
+              <Link href="/account/reset-password" className="text-xs text-muted underline hover:text-cloud">
+                Forgot password?
+              </Link>
+            </div>
             <input
               className="field"
               type="password"

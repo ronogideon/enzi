@@ -215,6 +215,14 @@ export const api = {
   },
 
   // auth
+  /** Forgotten password: sends an email link and an SMS code. Always 202. */
+  forgotPassword: (identifier: string) =>
+    req<{ ok: true }>("/auth/staff/password/forgot", { method: "POST", body: { identifier } }),
+
+  /** Complete a reset with either the emailed token or the SMS code. */
+  resetPassword: (body: { token: string; password: string } | { identifier: string; code: string; password: string }) =>
+    req<{ ok: true }>("/auth/staff/password/reset", { method: "POST", body }),
+
   login: (email: string, password: string) =>
     req<{ token: string; staff: Staff }>("/auth/staff/login", {
       method: "POST",

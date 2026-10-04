@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { hashPassword, verifyPassword } from "../../lib/password";
 import { HttpError } from "../../middleware/error";
-import { requireStaff, requireRole } from "../../middleware/auth";
+import { requireStaff, requireRole, invalidateSession } from "../../middleware/auth";
 import { normalizePhone } from "../../lib/phone";
 import { canViewMetricsOf, audit } from "../../lib/permissions";
 
@@ -319,8 +319,12 @@ staffRouter.post(
       data: {
         passwordHash: await hashPassword(password),
         mustChangePassword: target.id !== req.auth!.sub,
+        // Resetting someone else's password signs them out everywhere — the
+        // usual reason for doing it is that the old one may be known.
+        ...(target.id !== req.auth!.sub ? { passwordChangedAt: new Date() } : {}),
       },
     });
+    if (target.id !== req.auth!.sub) invalidateSession("staff", target.id);
     res.json({ ok: true });
   })
 );

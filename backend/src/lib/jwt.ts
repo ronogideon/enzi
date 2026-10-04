@@ -11,7 +11,8 @@ export interface CustomerTokenPayload {
   phone: string;
   kind: "customer";
 }
-export type TokenPayload = StaffTokenPayload | CustomerTokenPayload;
+/** `iat` is added by jsonwebtoken on sign; used to reject sessions older than a password reset. */
+export type TokenPayload = (StaffTokenPayload | CustomerTokenPayload) & { iat?: number; exp?: number };
 
 /**
  * Session lifetimes differ by who is holding the token, because the cost of a
