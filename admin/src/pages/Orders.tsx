@@ -77,7 +77,10 @@ export default function Orders() {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, query]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ?order=<id> opens that order straight away — the link in staff new-order emails.
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("order")
+  );
 
   function refreshAll() {
     orders.reload();

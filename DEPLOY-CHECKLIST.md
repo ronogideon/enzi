@@ -1,4 +1,70 @@
-# Deploy checklist — Enzi v0.7.0
+# Deploy checklist — Enzi v0.7.1
+
+**Schema change (additive)**: one new table, `PushSubscription`. Deploy the
+backend, run `npm run db:push` in its Railway shell, then deploy the storefront
+and admin. (If v0.7.0's push was never run, this one covers both.)
+
+**No new Railway variables.** Push keys are generated on first use and stored
+in Settings, encrypted like the M-Pesa keys.
+
+---
+
+## Search bar on phones
+A search box now sits under the header on phones. It slides away while you
+scroll down and comes back the moment you scroll up — and stays put while
+someone is typing. On /shop it's prefilled with the current search. Tablets and
+desktop keep the search in the header as before.
+
+## Shop filters on phones
+Categories and Price are dropdowns on small screens, with Sort beside Price, so
+products start near the top instead of below two long lists. Desktop unchanged.
+
+## Staff email for every new order
+- Goes to every **active** SuperAdmin, Admin and Staff member (the roles that
+  can open Orders). Support doesn't get them.
+- Fires with the customer confirmation: when a pay-on-delivery order is placed,
+  or when a pay-first order's payment lands. Unpaid attempts alert no one.
+- Shows customer, tap-to-call phone, payment, delivery and items, with
+  **Open in admin** going straight to that order.
+
+## Order alerts on staff phones (installable admin)
+The admin is now an installable app with push notifications.
+
+**Android (Chrome):**
+1. Open the admin in Chrome and sign in.
+2. Tap **Install app** on the banner (or Chrome menu → *Install app*).
+3. Tap **Turn on alerts** → Allow.
+4. Menu → *Order alerts* → **Send test**.
+
+**iPhone (iOS 16.4+):** Safari → Share → *Add to Home Screen*, open Enzi Admin
+from the home screen, then turn alerts on. Safari tabs can't receive them.
+
+How it behaves:
+- Same roles and same moment as the staff email. Each alert shows the order
+  number, total, customer, item count and payment, and **stays on screen until
+  tapped** (Android). Tapping opens that order.
+- Works with the app closed. Alerts older than an hour are dropped rather than
+  delivered late.
+- On by device: each phone or computer is turned on separately.
+- **Sign out** turns alerts off on that device (it may be handed to someone
+  else). Being signed out for inactivity does not — the phone keeps ringing.
+- Deactivated staff stop receiving alerts immediately. Uninstalled apps are
+  cleaned up automatically.
+- Android may delay alerts for apps with aggressive battery saving. If a phone
+  is slow to ring: Settings → Apps → Chrome → Battery → *Unrestricted*.
+
+### Check
+- [ ] Phone, storefront: search bar under the header; scroll down → it hides;
+      scroll up a little → it's back. Search "box" → /shop?search=box.
+- [ ] Phone: /shop shows the three dropdowns with products right below.
+- [ ] Place a POD order → staff get the "New order" email.
+- [ ] Android: install admin, turn alerts on, **Send test** → notification.
+- [ ] Close the app, place an order → notification arrives; tap → order opens.
+- [ ] Sign out on that phone, place an order → no notification there.
+
+---
+
+# v0.7.0
 
 **Schema change (additive).** Redeploy all three services, then run
 `npm run db:push` in the backend's Railway shell. Every new column is nullable

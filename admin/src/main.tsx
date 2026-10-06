@@ -4,6 +4,10 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import App from "./App";
 import "./index.css";
+import { captureInstallPrompt, registerServiceWorker } from "@/lib/push";
+
+captureInstallPrompt();
+registerServiceWorker();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

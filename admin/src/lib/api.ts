@@ -215,6 +215,14 @@ export const api = {
   },
 
   // auth
+  // order alerts (web push)
+  pushPublicKey: () => req<{ publicKey: string }>("/push/public-key"),
+  pushSubscribe: (subscription: PushSubscriptionJSON) =>
+    req<{ ok: true }>("/push/subscribe", { method: "POST", body: { subscription } }),
+  pushUnsubscribe: (endpoint: string) =>
+    req<{ ok: true }>("/push/unsubscribe", { method: "POST", body: { endpoint } }),
+  pushTest: () => req<{ sent: number; failed: number }>("/push/test", { method: "POST" }),
+
   /** Forgotten password: sends an email link and an SMS code. Always 202. */
   forgotPassword: (identifier: string) =>
     req<{ ok: true }>("/auth/staff/password/forgot", { method: "POST", body: { identifier } }),

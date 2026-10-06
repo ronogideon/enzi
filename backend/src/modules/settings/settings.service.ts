@@ -23,6 +23,8 @@ export const SECRET_KEYS = new Set([
   "kopokopo.clientSecret",
   "kopokopo.apiKey",
   "sms.apiKey",
+  // Generated on first use, never shown in the admin — see push.service.ts.
+  "push.vapidPrivateKey",
 ]);
 
 /** Every key the admin UI knows how to edit, with where it falls back to. */

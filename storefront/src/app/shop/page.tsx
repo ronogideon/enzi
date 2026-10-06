@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { ProductCard } from "@/components/ProductCard";
+import { ShopFilters } from "@/components/ShopFilters";
 import type { Product } from "@/lib/types";
 
 export const metadata = {
@@ -8,6 +9,19 @@ export const metadata = {
   description:
     "Browse every packaging product we stock — polymailers, boxes, tape, ribbon and more. Live prices and stock, with automatic wholesale rates on bulk orders.",
 };
+
+const PRICE_OPTIONS = [
+  { value: "under-1000", label: "Under Ksh 1,000" },
+  { value: "1000-5000", label: "Ksh 1,000 – 5,000" },
+  { value: "5000-plus", label: "Ksh 5,000+" },
+];
+
+const SORT_OPTIONS = [
+  { value: "", label: "Default" },
+  { value: "price-asc", label: "Price ↑" },
+  { value: "price-desc", label: "Price ↓" },
+  { value: "name", label: "A–Z" },
+];
 
 const PRICE_BANDS: Record<string, [number, number]> = {
   "under-1000": [0, 100000],
@@ -56,17 +70,25 @@ export default async function ShopPage({
     <>
       {/* page head */}
       <section className="border-b border-ink-line">
-        <div className="shell py-16">
-          <h1 className="display text-4xl md:text-5xl">Our shop</h1>
-          <p className="mt-3 max-w-lg text-muted">
+        <div className="shell py-8 md:py-16">
+          <h1 className="display text-3xl md:text-5xl">Our shop</h1>
+          <p className="mt-2 max-w-lg text-sm text-muted md:mt-3 md:text-base">
             Explore our full range of professional packaging solutions.
           </p>
         </div>
       </section>
 
-      <div className="shell grid gap-10 py-12 lg:grid-cols-[260px_1fr]">
-        {/* sidebar — in normal flow, never floats over the grid */}
-        <aside className="space-y-8">
+      <div className="shell grid gap-6 py-6 md:py-12 lg:grid-cols-[260px_1fr] lg:gap-10">
+        {/* phones: compact dropdowns so products start near the top */}
+        <ShopFilters
+          categories={categories.map((c) => ({ value: c.slug, label: c.name }))}
+          priceBands={PRICE_OPTIONS}
+          sorts={SORT_OPTIONS}
+          current={searchParams}
+        />
+
+        {/* desktop sidebar — in normal flow, never floats over the grid */}
+        <aside className="hidden space-y-8 lg:block">
           <div>
             <p className="eyebrow mb-4 border-b border-ink-line pb-3">Categories</p>
             <ul className="space-y-1">
@@ -101,11 +123,7 @@ export default async function ShopPage({
           <div>
             <p className="eyebrow mb-4 border-b border-ink-line pb-3">Price range</p>
             <ul className="space-y-1">
-              {[
-                { key: "under-1000", label: "Under Ksh 1,000" },
-                { key: "1000-5000", label: "Ksh 1,000 – 5,000" },
-                { key: "5000-plus", label: "Ksh 5,000+" },
-              ].map((b) => (
+              {PRICE_OPTIONS.map(({ value: key, label }) => ({ key, label })).map((b) => (
                 <li key={b.key}>
                   <Link
                     href={withParam({
@@ -127,7 +145,7 @@ export default async function ShopPage({
 
         {/* grid */}
         <div>
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex items-center justify-between gap-4">
             <p className="text-sm text-muted">
               Showing {list.length} result{list.length === 1 ? "" : "s"}
               {searchParams.search && (
@@ -136,7 +154,8 @@ export default async function ShopPage({
                 </>
               )}
             </p>
-            <div className="flex gap-2 text-xs">
+            {/* sort chips — desktop only; phones get the Sort dropdown */}
+            <div className="hidden gap-2 text-xs lg:flex">
               {[
                 { key: undefined, label: "Default" },
                 { key: "price-asc", label: "Price ↑" },

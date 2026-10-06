@@ -3,6 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useIdleTimeout, IdleWarning } from "@/lib/session";
 import { Icon, type IconName } from "@/components/Icons";
+import { OrderAlertsBanner, OrderAlertsControl } from "@/components/OrderAlerts";
+import { disablePush } from "@/lib/push";
 import type { Role } from "@/lib/types";
 
 // Injected at build time from package.json (see vite.config define).
@@ -78,7 +80,11 @@ export function Layout() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  function handleLogout() {
+  // Manual sign-out also stops order alerts on this device — the phone may be
+  // handed to someone else. Idle and expiry sign-outs keep them on: a staff
+  // phone that goes quiet for 30 minutes should still ring for the next order.
+  async function handleLogout() {
+    await disablePush().catch(() => {});
     logout();
     navigate("/login");
   }
@@ -176,6 +182,7 @@ export function Layout() {
       </button>
       {/* Build stamp — lets you confirm at a glance which version is actually
           deployed, instead of guessing whether a change shipped. */}
+      <OrderAlertsControl />
       <p className="mt-3 text-[10px] text-faint">v{APP_VERSION}</p>
     </div>
   );
@@ -257,6 +264,7 @@ export function Layout() {
 
         {/* pb-24 on mobile keeps the bottom bar from covering the last row */}
         <main className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-8 sm:py-8 lg:pb-8">
+          <OrderAlertsBanner />
           <Outlet />
         </main>
 

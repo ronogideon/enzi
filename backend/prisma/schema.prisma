@@ -114,6 +114,7 @@ model StaffUser {
   packedOrders  Order[]        @relation("PackedBy")
   orderEvents   OrderEvent[]
   auditLogs     AuditLog[]
+  pushSubscriptions PushSubscription[]
 }
 
 // ----------------------------------------------------------------------------
@@ -724,4 +725,25 @@ model PasswordReset {
 
   @@index([tokenHash])
   @@index([subjectType, subjectId, createdAt])
+}
+
+// ----------------------------------------------------------------------------
+// Web push — order alerts on staff phones (installed admin app)
+// ----------------------------------------------------------------------------
+
+/// One row per browser/device a staff member turned order alerts on in.
+model PushSubscription {
+  id            String    @id @default(cuid())
+  staffId       String
+  staff         StaffUser @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  /// The push service URL for this device. Unique: re-subscribing the same
+  /// device moves it to whoever is signed in now.
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+
+  @@index([staffId])
 }

@@ -27,6 +27,40 @@ export function Header({ categories }: { categories: Category[] }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchFocused = useRef(false);
+  const [searchVisible, setSearchVisible] = useState(true);
+
+  // Phones: the search row hides while scrolling down (more room for products)
+  // and comes back on the first scroll up. Always shown near the top of the
+  // page and while someone is typing in it.
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let frame = 0;
+    function onScroll() {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const y = window.scrollY;
+        const dy = y - lastY;
+        if (y < 80 || searchFocused.current) setSearchVisible(true);
+        else if (dy > 6) setSearchVisible(false);
+        else if (dy < -6) setSearchVisible(true);
+        if (Math.abs(dy) > 6 || y < 80) lastY = y;
+      });
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // Keep the box in step with the URL: prefilled on /shop?search=…, cleared elsewhere.
+  useEffect(() => {
+    setQuery(pathname === "/shop" ? new URLSearchParams(window.location.search).get("search") ?? "" : "");
+    setSearchVisible(true);
+    setMobileOpen(false);
+  }, [pathname]);
 
   // close the mega-menu on outside click / route change / escape
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -50,12 +84,14 @@ export function Header({ categories }: { categories: Category[] }) {
     e.preventDefault();
     const q = query.trim();
     if (q) router.push(`/shop?search=${encodeURIComponent(q)}`);
+    (document.activeElement as HTMLElement | null)?.blur(); // close the phone keyboard
   }
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-ink-line bg-ink/80 backdrop-blur">
       {/* top contact strip */}
       <div className="hidden border-b border-ink-line/60 md:block">
@@ -285,7 +321,46 @@ export function Header({ categories }: { categories: Category[] }) {
           </nav>
         </div>
       )}
+
+      {/* Phone search row. Positioned under the header rather than inside its
+          flow, so hiding it never changes the header's height — no page jump
+          mid-scroll. The spacer below the header reserves its room at the top. */}
+      <div
+        className={`absolute inset-x-0 top-full border-b border-ink-line bg-ink/95 backdrop-blur transition-[transform,opacity] duration-200 ease-out md:hidden ${
+          searchVisible && !mobileOpen ? "translate-y-0" : "pointer-events-none -translate-y-full opacity-0"
+        }`}
+        style={{ zIndex: -1 }}
+        aria-hidden={!searchVisible || mobileOpen}
+      >
+        <form onSubmit={submitSearch} role="search" className="shell py-2.5">
+          <div className="flex items-center rounded-full border border-ink-line bg-ink-800 pl-4 pr-1.5 focus-within:border-indigo/60">
+            <input
+              type="search"
+              enterKeyHint="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => (searchFocused.current = true)}
+              onBlur={() => (searchFocused.current = false)}
+              placeholder="Search products…"
+              className="h-11 min-w-0 flex-1 bg-transparent py-0 text-[16px] leading-none text-cloud placeholder:text-faint focus:outline-none"
+              aria-label="Search products"
+              tabIndex={searchVisible && !mobileOpen ? 0 : -1}
+            />
+            <button
+              type="submit"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted active:text-cloud"
+              aria-label="Search"
+              tabIndex={searchVisible && !mobileOpen ? 0 : -1}
+            >
+              <Icon.Search className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+        </form>
+      </div>
     </header>
+    {/* reserves the phone search row's space at the top of every page */}
+    <div aria-hidden className="h-[67px] md:hidden" />
+    </>
   );
 }
 
